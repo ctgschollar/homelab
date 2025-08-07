@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  coredns:
+    image: coredns/coredns:latest
+    command: ["-conf", "/etc/coredns/Corefile"]
+    configs:
+      - source: coredns_corefile
+        target: /etc/coredns/Corefile
+        mode: 0444
+      - source: coredns_home_db
+        target: /etc/coredns/home.db
+        mode: 0444
+    ports:
+      - target: 53
+        published: 53
+        protocol: udp
+        mode: host
+      - target: 53
+        published: 53
+        protocol: tcp
+        mode: host
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - dns-net
+
+networks:
+  dns-net:
+    driver: overlay
+    attachable: true
+
+configs:
+  coredns_corefile:
+    file: ./Corefile
+  coredns_home_db:
+    file: ./home.db

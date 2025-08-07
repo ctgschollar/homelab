@@ -1,0 +1,34 @@
+home.:53 {
+  log
+  errors
+  
+  hosts {
+    192.168.3.101 prx01.home
+    192.168.3.102 prx02.home
+    192.168.3.103 prx03.home
+    192.168.3.104 prx04.home
+    192.168.3.105 prx05.home
+    192.168.3.16 jellyfin.home
+    192.168.3.204 media.home
+    fallthrough
+  }
+
+  # Answer every A under .home with your Traefik IP
+  template IN A {
+    match .*
+    answer "{{ .Name }} 60 IN A 192.168.3.70"
+  }
+
+  # Optional: make AAAA under .home return NXDOMAIN
+  template IN AAAA {
+    match .*
+    rcode NXDOMAIN
+  }
+}
+
+.:53 {
+  log
+  errors
+  cache 30
+  forward . 1.1.1.1 9.9.9.9
+}

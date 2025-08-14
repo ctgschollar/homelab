@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   prowlarr:
-    image: ghcr.io/hotio/prowlarr:release-1.21.2.4649
+    image: ghcr.io/hotio/prowlarr:release
     user: "0:0"
     environment:
       PID: "0"

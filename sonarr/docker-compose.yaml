@@ -1,8 +1,8 @@
 version: "3.8"
 
 services:
-  radarr:
-    image: ghcr.io/hotio/radarr:release
+  sonarr:
+    image: ghcr.io/hotio/sonarr:release
     user: "0:0"
     environment:
       PID: "0"
@@ -11,13 +11,13 @@ services:
       # TZ: Africa/Johannesburg
     volumes:
       - type: bind
-        source: /mnt/cephfs-configs/radarr/config   # ⟵ change if you store configs elsewhere
+        source: /mnt/cephfs-configs/sonarr/config   # ← change if you keep configs elsewhere
         target: /config
       - type: bind
-        source: /mnt/shared/jellyfin/movies               # ⟵ your movies library on the host
-        target: /data/movies
+        source: /mnt/shared/jellyfin/series              # ← your series library on the host
+        target: /data/series
       - type: bind
-        source: /mnt/shared/torrent/complete              # ⟵ completed downloads
+        source: /mnt/shared/torrent/complete             # ← completed downloads
         target: /data/torrent/complete
     networks:
       - traefik-net
@@ -36,12 +36,12 @@ services:
         traefik.docker.network: traefik-net
 
         # HTTPS router
-        traefik.http.routers.radarr.rule: Host(`radarr.schollar.dev`)
-        traefik.http.routers.radarr.entrypoints: websecure
-        traefik.http.routers.radarr.tls.certresolver: cf
+        traefik.http.routers.sonarr.rule: Host(`sonarr.schollar.dev`)
+        traefik.http.routers.sonarr.entrypoints: websecure
+        traefik.http.routers.sonarr.tls.certresolver: cf
 
         # Upstream service port
-        traefik.http.services.radarr.loadbalancer.server.port: "7878"
+        traefik.http.services.sonarr.loadbalancer.server.port: "8989"
 
 networks:
   traefik-net:

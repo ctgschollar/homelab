@@ -17,7 +17,7 @@ services:
         source: /mnt/shared/torrent/complete                     # ← completed downloads
         target: /data/torrent/complete
       - type: bind
-        source: /media/torrent/incomplete                   # ← in-progress downloads
+        source: /mnt/shared/torrent/incomplete                   # ← in-progress downloads
         target: /data/torrent/incomplete
     networks:
       - traefik-net

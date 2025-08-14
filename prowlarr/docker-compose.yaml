@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  prowlarr:
+    image: ghcr.io/hotio/prowlarr:release-1.21.2.4649
+    user: "0:0"
+    environment:
+      PID: "0"
+      GID: "0"
+      UMASK: "002"
+      # TZ: Africa/Johannesburg
+    volumes:
+      - type: bind
+        source: /mnt/cephfs-configs/prowlarr/config   # <-- change if you keep configs elsewhere
+        target: /config
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.prowlarr.rule: Host(`prowlarr.schollar.dev`)
+        traefik.http.routers.prowlarr.entrypoints: websecure
+        traefik.http.routers.prowlarr.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.prowlarr.loadbalancer.server.port: "9696"
+
+networks:
+  traefik-net:
+    external: true

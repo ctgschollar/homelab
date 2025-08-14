@@ -1,0 +1,47 @@
+version: "3.8"
+
+configs:
+  homepage_settings:
+    name: homepage_settings
+    file: ./settings.yaml
+  homepage_services:
+    name: homepage_services
+    file: ./services.yaml
+
+networks:
+  traefik-net:
+    external: true
+
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest@sha256:ce3389bbd09d6e144088891c8abf532f6fe0b7b70a601ca87053d559d2933f75
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: homepage.schollar.dev   # change if you prefer a different host
+      TZ: Africa/Johannesburg
+    configs:
+      - source: homepage_settings
+        target: /app/config/settings.yaml
+        mode: 0444
+      - source: homepage_services
+        target: /app/config/services.yaml
+        mode: 0444
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.homepage.rule: Host(`homepage.schollar.dev`)
+        traefik.http.routers.homepage.entrypoints: websecure
+        traefik.http.routers.homepage.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.homepage.loadbalancer.server.port: "3000"
+

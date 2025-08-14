@@ -9,28 +9,53 @@ services:
       - "--providers.docker.exposedByDefault=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.pg.address=:5432"
       - "--api.dashboard=true"
-      - "--api.insecure=true"  # ⚠️ Remove or secure in production
+
+      # ACME (Let's Encrypt via Cloudflare DNS-01)
+      - "--certificatesresolvers.cf.acme.email=ctgschollar@gmail.com"
+      - "--certificatesresolvers.cf.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.cf.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
+
+    environment:
+      ACME_EMAIL: "ctgschollar@gmail.com"
+      DOMAIN_BASE: ".schollar.dev"
+
+    env_file: /mnt/cephfs-configs/traefik/.env
+
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"  # Dashboard access
+      - "5432:5432" # Postgres access
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/mnt/cephfs-configs/traefik/letsencrypt:/letsencrypt"
+
     deploy:
       mode: replicated
-      replicas: 1
+      replicas: 3
       placement:
         constraints:
-          - node.role == manager
+          - node.labels.traefik == true
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.traefik.rule=Host(`traefik.local`)"
-        - "traefik.http.routers.traefik.entrypoints=web"
+        # Optional: secure dashboard at https://traefik.schollar.dev
+        - "traefik.http.routers.traefik.rule=Host(`traefik.schollar.dev`)"
+        - "traefik.http.routers.traefik.entrypoints=websecure"
+        - "traefik.http.routers.traefik.tls=true"
+        - "traefik.http.routers.traefik.tls.certresolver=cf"
         - "traefik.http.routers.traefik.service=api@internal"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/version >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 30s
+      retries: 6
 
 networks:
   default:
-    external:
-      name: traefik-net
+    external: true
+    name: traefik-net
 

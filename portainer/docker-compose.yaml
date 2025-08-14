@@ -17,8 +17,10 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.portainer.rule=Host(`portainer.home`)"
-        - "traefik.http.routers.portainer.entrypoints=web"
+        - "traefik.docker.network=traefik-net"
+        - "traefik.http.routers.portainer.rule=Host(`portainer.schollar.dev`)"
+        - "traefik.http.routers.portainer.entrypoints=websecure"
+        - "traefik.http.routers.portainer.tls.certresolver=cf"
         - "traefik.http.services.portainer.loadbalancer.server.port=9000"
 
 volumes:

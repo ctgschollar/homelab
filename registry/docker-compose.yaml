@@ -1,0 +1,45 @@
+version: "3.8"
+
+configs:
+  registry_config:
+    name: registry_config
+    file: ./config.yaml   # lives next to this compose file
+
+secrets:
+  registry_htpasswd:
+    external: true
+
+networks:
+  traefik-net:
+    external: true
+
+services:
+  registry:
+    image: registry:3
+    networks: [traefik-net]
+    configs:
+      - source: registry_config
+        target: /etc/distribution/config.yml
+        mode: 0444
+    secrets:
+      - source: registry_htpasswd
+        target: registry_htpasswd
+        mode: 0440
+    volumes:
+      - type: bind
+        source: /mnt/cephfs-registry
+        target: /var/lib/registry
+    deploy:
+      mode: replicated
+      replicas: 1 
+      placement:
+        constraints:
+          - node.labels.registry == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.registry.rule: Host(`registry.schollar.dev`)
+        traefik.http.routers.registry.entrypoints: websecure
+        traefik.http.routers.registry.tls.certresolver: cf
+        traefik.http.services.registry.loadbalancer.server.port: "5000"
+

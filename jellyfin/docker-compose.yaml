@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    networks:
+      - traefik-net
+    volumes:
+      - type: bind
+        source: /srv/jellyfin/config
+        target: /config
+      - type: bind
+        source: /srv/jellyfin/
+        target: /cache
+      - type: bind
+        source: /mnt/shared/jellyfin/
+        target: /media
+    # Optional: publish the external URL Jellyfin should advertise (stream URLs, etc.)
+    environment:
+      JELLYFIN_PublishedServerUrl: https://jellyfin.schollar.dev
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.jellyfin.rule: Host(`jellyfin.schollar.dev`)
+        traefik.http.routers.jellyfin.entrypoints: websecure
+        traefik.http.routers.jellyfin.tls.certresolver: cf
+
+        # Upstream service (Jellyfin listens on 8096 HTTP)
+        traefik.http.services.jellyfin.loadbalancer.server.port: "8096"
+
+networks:
+  traefik-net:
+    external: true

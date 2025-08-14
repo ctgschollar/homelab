@@ -9,7 +9,10 @@ services:
         target: /etc/coredns/Corefile
         mode: 0444
       - source: coredns_home_db
-        target: /etc/coredns/home.db
+        target: /etc/coredns/zones/home.db
+        mode: 0444
+      - source: coredns_schollar_dev_db
+        target: /etc/coredns/zones/schollar.dev.db
         mode: 0444
     ports:
       - target: 53
@@ -35,6 +38,11 @@ networks:
 
 configs:
   coredns_corefile:
+    name: coredns_corefile              # stable name (no manual versioning)
     file: ./Corefile
   coredns_home_db:
-    file: ./home.db
+    name: coredns_home_db               # stable name
+    file: ./zones/home.db
+  coredns_schollar_dev_db:
+    name: coredns_schollar_dev_db       # stable name
+    file: ./zones/schollar.dev.db

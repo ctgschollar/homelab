@@ -1,0 +1,24 @@
+$ORIGIN home.
+$TTL 60
+@       IN SOA ns.home. hostmaster.home. (1 3600 600 604800 60)
+        IN NS  ns.home.
+ns      IN A   192.168.3.70
+
+; Explicit hosts (bypass Traefik)
+prx01   IN A   192.168.3.101
+prx02   IN A   192.168.3.102
+prx03   IN A   192.168.3.103
+prx04   IN A   192.168.3.104
+prx05   IN A   192.168.3.105
+jellyfin IN A  192.168.3.16
+media    IN A  192.168.3.204
+dks01   IN A   192.168.3.70
+dks02   IN A   192.168.3.71
+dks03   IN A   192.168.3.72
+dks04   IN A   192.168.3.73
+
+; Wildcard default -> Traefik
+*       IN A   192.168.3.70; dks01
+        IN A   192.168.3.71; dks02
+        IN A   192.168.3.72; dks03
+

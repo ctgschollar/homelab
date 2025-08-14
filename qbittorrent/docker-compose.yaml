@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  qbittorrent:
+    image: ghcr.io/hotio/qbittorrent:latest
+    user: "0:0"
+    environment:
+      PID: "0"
+      GID: "0"
+      UMASK: "002"
+      # TZ: Africa/Johannesburg
+    volumes:
+      - type: bind
+        source: /mnt/cephfs-configs/qbittorrent/config     # ← change if needed
+        target: /config
+      - type: bind
+        source: /mnt/shared/torrent/complete                     # ← completed downloads
+        target: /data/torrent/complete
+      - type: bind
+        source: /media/torrent/incomplete                   # ← in-progress downloads
+        target: /data/torrent/incomplete
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router to the WebUI (qBittorrent WebUI listens on 8080 by default)
+        traefik.http.routers.qb.rule: Host(`qbittorrent.schollar.dev`)
+        traefik.http.routers.qb.entrypoints: websecure
+        traefik.http.routers.qb.tls.certresolver: cf
+        traefik.http.services.qb.loadbalancer.server.port: "8080"
+
+    # Peer ports (for good swarm connectivity). Make sure qBittorrent's
+    # Settings → Connections → "Listening Port" matches the published port.
+    ports:
+      - target: 6881
+        published: 6881
+        protocol: tcp
+        mode: host
+      - target: 6881
+        published: 6881
+        protocol: udp
+        mode: host
+
+networks:
+  traefik-net:
+    external: true
+

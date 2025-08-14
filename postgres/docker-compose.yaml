@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    stop_grace_period: 10s
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.db == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        # TCP passthrough via Traefik entrypoint "pg"
+        traefik.tcp.routers.postgres.entrypoints: pg
+        traefik.tcp.routers.postgres.rule: HostSNI(`*`)
+        traefik.tcp.services.postgres.loadbalancer.server.port: "5432"
+        traefik.tcp.services.postgres.loadbalancer.terminationdelay: "0"
+
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  postgres_data:
+    name: postgres_postgres_data
+    external: true
+
+secrets:
+  postgres_password:
+    external: true
+

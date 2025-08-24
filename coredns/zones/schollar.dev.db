@@ -24,7 +24,7 @@ dks04   IN A  192.168.3.73
 
 ; --- Wildcard -> Traefik (round-robin across your swarm ingress/Traefik nodes)
 *       IN A  192.168.3.70  ; dks01
-        IN A  192.168.3.71  ; dks02
-        IN A  192.168.3.72  ; dks03
+;        IN A  192.168.3.71  ; dks02
+;        IN A  192.168.3.72  ; dks03
 @       IN A  192.168.3.70  ; base schollar.dev also to Traefik
 

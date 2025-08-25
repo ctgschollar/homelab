@@ -48,12 +48,6 @@ services:
         - "traefik.http.routers.traefik.service=api@internal"
         - "traefik.http.services.traefik.loadbalancer.server.port=8080"
 
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/version >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 30s
-      retries: 6
-
 networks:
   default:
     external: true

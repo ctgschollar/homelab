@@ -1,0 +1,136 @@
+version: "3.8"
+
+configs:
+  prometheus.yml:
+    name: prometheus.yml
+    data: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+
+        - job_name: 'ceph'
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+              - '192.168.3.103:9283'
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: instance
+
+  grafana-datasource-prometheus.yml:
+    name: grafana-datasource-prometheus.yml
+    data: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+          jsonData:
+            timeInterval: 15s
+
+  grafana-dashboards-provider.yml:
+    name: grafana-dashboards-provider.yml
+    data: |
+      apiVersion: 1
+      providers:
+        - name: 'Ceph Dashboards'
+          orgId: 1
+          folder: 'Ceph'
+          type: file
+          disableDeletion: false
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  grafana-dashboards:   # place Ceph JSON dashboards here later
+
+secrets:
+  grafana-admin-password:
+    external: false
+    # You can also create this via:  echo -n 'YourStrongPassword' | docker secret create grafana-admin-password -
+    # If you want to inline here for a one-off demo, uncomment 'file:' and provide a local file.
+    # file: ./grafana_admin_password.txt
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--storage.tsdb.retention.time=15d"
+    configs:
+      - source: prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus-data:/prometheus
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+      # placement:
+      #  constraints:
+      #    - node.labels.metrics == true
+      update_config:
+        order: start-first
+        parallelism: 1
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.prometheus.rule: Host(`prometheus.schollar.dev`)
+        traefik.http.routers.prometheus.entrypoints: websecure
+        traefik.http.routers.prometheus.tls.certresolver: cf
+        traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+
+  grafana:
+    image: grafana/grafana:10.4.5
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_SERVER_ROOT_URL: https://grafana.schollar.dev
+      GF_USERS_DEFAULT_THEME: dark
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    secrets:
+      - grafana-admin-password
+    configs:
+      - source: grafana-datasource-prometheus.yml
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+      - source: grafana-dashboards-provider.yml
+        target: /etc/grafana/provisioning/dashboards/provider.yml
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-dashboards:/var/lib/grafana/dashboards
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+        # placement:
+        # constraints:
+        #  - node.labels.metrics == true
+      update_config:
+        order: start-first
+        parallelism: 1
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        # HTTPS router
+        traefik.http.routers.grafana.rule: Host(`grafana.schollar.dev`)
+        traefik.http.routers.grafana.entrypoints: websecure
+        traefik.http.routers.grafana.tls.certresolver: cf
+        # Upstream port
+        traefik.http.services.grafana.loadbalancer.server.port: "3000"
+

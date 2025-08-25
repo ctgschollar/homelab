@@ -38,6 +38,13 @@ services:
       placement:
         constraints:
           - node.labels.traefik == true
+        max_replicas_per_node: 1
+        preferences:
+          - spread: node.id
+      update_config:
+        parallelism: 1
+        order: start-first     # start new task, then stop old (minimize downtime)
+        failure_action: rollback
       labels:
         - "traefik.enable=true"
         # Optional: secure dashboard at https://traefik.schollar.dev

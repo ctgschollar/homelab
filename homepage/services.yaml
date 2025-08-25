@@ -21,17 +21,17 @@
         icon: si:portainer
     - Proxmox:
         - prx01:
-          href: https://prx01.schollar.dev:8006
+            href: https://prx01.schollar.dev:8006
             icon: si-proxmox
         - prx02:
-          href: https://prx02.schollar.dev:8006
+            href: https://prx02.schollar.dev:8006
             icon: si-proxmox
         - prx03:
-          href: https://prx03.schollar.dev:8006
+            href: https://prx03.schollar.dev:8006
             icon: si-proxmox
         - prx04:
-          href: https://prx04.schollar.dev:8006
+            href: https://prx04.schollar.dev:8006
             icon: si-proxmox
         - prx05:
-          href: http://prx05.schollar.dev:8006
+            href: https://prx05.schollar.dev:8006
             icon: si-proxmox

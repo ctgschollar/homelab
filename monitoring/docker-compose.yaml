@@ -1,54 +1,5 @@
 version: "3.8"
 
-configs:
-  prometheus.yml:
-    name: prometheus.yml
-    data: |
-      global:
-        scrape_interval: 15s
-        evaluation_interval: 15s
-
-      scrape_configs:
-        - job_name: 'prometheus'
-          static_configs:
-            - targets: ['localhost:9090']
-
-        - job_name: 'ceph'
-          metrics_path: /metrics
-          static_configs:
-            - targets:
-              - '192.168.3.103:9283'
-          relabel_configs:
-            - source_labels: [__address__]
-              target_label: instance
-
-  grafana-datasource-prometheus.yml:
-    name: grafana-datasource-prometheus.yml
-    data: |
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://prometheus:9090
-          isDefault: true
-          jsonData:
-            timeInterval: 15s
-
-  grafana-dashboards-provider.yml:
-    name: grafana-dashboards-provider.yml
-    data: |
-      apiVersion: 1
-      providers:
-        - name: 'Ceph Dashboards'
-          orgId: 1
-          folder: 'Ceph'
-          type: file
-          disableDeletion: false
-          allowUiUpdates: true
-          options:
-            path: /var/lib/grafana/dashboards
-
 networks:
   traefik-net:
     external: true
@@ -56,14 +7,19 @@ networks:
 volumes:
   prometheus-data:
   grafana-data:
-  grafana-dashboards:   # place Ceph JSON dashboards here later
+  grafana-dashboards:   # drop Ceph dashboard JSONs here at runtime (optional)
+
+configs:
+  prometheus.yml:
+    file: ./prometheus.yml
+  grafana-datasource-prometheus.yml:
+    file: ./provisioning/datasources/prometheus.yml
+  grafana-dashboards-provider.yml:
+    file: ./provisioning/dashboards/provider.yml
 
 secrets:
   grafana-admin-password:
-    external: false
-    # You can also create this via:  echo -n 'YourStrongPassword' | docker secret create grafana-admin-password -
-    # If you want to inline here for a one-off demo, uncomment 'file:' and provide a local file.
-    # file: ./grafana_admin_password.txt
+    file: ./secrets/grafana-admin-password.txt
 
 services:
   prometheus:
@@ -82,9 +38,9 @@ services:
     deploy:
       mode: replicated
       replicas: 1
-      # placement:
-      #  constraints:
-      #    - node.labels.metrics == true
+      placement:
+        constraints:
+          - node.labels.metrics == true
       update_config:
         order: start-first
         parallelism: 1
@@ -118,19 +74,17 @@ services:
     deploy:
       mode: replicated
       replicas: 1
-        # placement:
-        # constraints:
-        #  - node.labels.metrics == true
+      placement:
+        constraints:
+          - node.labels.metrics == true
       update_config:
         order: start-first
         parallelism: 1
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net
-        # HTTPS router
         traefik.http.routers.grafana.rule: Host(`grafana.schollar.dev`)
         traefik.http.routers.grafana.entrypoints: websecure
         traefik.http.routers.grafana.tls.certresolver: cf
-        # Upstream port
         traefik.http.services.grafana.loadbalancer.server.port: "3000"
 

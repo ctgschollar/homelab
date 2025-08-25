@@ -1,0 +1,11 @@
+iapiVersion: 1
+providers:
+  - name: 'Ceph Dashboards'
+    orgId: 1
+    folder: 'Ceph'
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+

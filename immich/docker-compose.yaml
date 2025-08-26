@@ -1,4 +1,3 @@
-# immich.stack.yml
 version: "3.9"
 
 networks:
@@ -13,25 +12,16 @@ volumes:
 
 services:
   database:
-    image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0@sha256:90724186f0a3517cf6914295b5ab410db9ce23190a2d9d0b9dd6463e3fa298f0
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0
     env_file: /mnt/cephfs-configs/immich/.env
     environment:
       POSTGRES_INITDB_ARGS: "--data-checksums"
-      TZ: Africa/Johannesburg
+      # DB_STORAGE_TYPE: "HDD"   # uncomment if your DB disk is HDD
     volumes:
       - type: bind
         source: /root/postgres
         target: /var/lib/postgresql/data
-    command:
-      [
-        "postgres",
-        "-c","shared_preload_libraries=vectors.so",
-        "-c",'search_path="$$user", public, vectors',
-        "-c","logging_collector=on",
-        "-c","max_wal_size=2GB",
-        "-c","shared_buffers=512MB",
-        "-c","wal_compression=on"
-      ]
+    shm_size: 128mb
     networks: [app-net]
     deploy:
       placement:
@@ -41,24 +31,27 @@ services:
         condition: on-failure
 
   redis:
-    image: docker.io/redis:6.2-alpine@sha256:e3b17ba9479deec4b7d1eeec1548a253acc5374d68d3b27937fcfe4df8d18c7e
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+    # Official compose now uses Valkey (Redis-compatible)
+    image: docker.io/valkey/valkey:8-bookworm
     networks: [app-net]
     deploy:
+      placement:
+        constraints:
+          - node.labels.media == true
       restart_policy:
         condition: on-failure
 
   immich-machine-learning:
     image: ghcr.io/immich-app/immich-machine-learning:release
-    environment:
-      TZ: Africa/Johannesburg
     volumes:
       - type: volume
         source: model-cache
         target: /cache
     networks: [app-net]
     deploy:
+      placement:
+        constraints:
+          - node.labels.media == true
       restart_policy:
         condition: on-failure
 
@@ -66,10 +59,12 @@ services:
     image: ghcr.io/immich-app/immich-server:release
     env_file: /mnt/cephfs-configs/immich/.env
     environment:
-      TZ: Africa/Johannesburg
+      # Set TZ if you like: TZ=Africa/Johannesburg
       DB_HOSTNAME: database
       DB_PORT: "5432"
       REDIS_HOSTNAME: redis
+      # Optional but helps future integrity checks:
+      # IMMICH_MEDIA_LOCATION: /data
     volumes:
       - type: bind
         source: /mnt/shared/immich/library
@@ -81,43 +76,16 @@ services:
     depends_on:
       - redis
       - database
-    networks: [app-net]
+    networks: [app-net, traefik-net]
     deploy:
       placement:
         constraints:
           - node.labels.media == true
       restart_policy:
         condition: on-failure
-
-  immich-web:
-    image: ghcr.io/immich-app/immich-web:release
-    environment:
-      TZ: Africa/Johannesburg
-    depends_on:
-      - immich-server
-    networks: [app-net]
-    deploy:
-      restart_policy:
-        condition: on-failure
-
-  immich-proxy:
-    image: ghcr.io/immich-app/immich-proxy:release
-    environment:
-      TZ: Africa/Johannesburg
-      IMMICH_SERVER_URL: http://immich-server:3001
-      IMMICH_WEB_URL: http://immich-web:3000
-    depends_on:
-      - immich-server
-      - immich-web
-    networks: [app-net, traefik-net]
-    deploy:
-      placement:
-        constraints:
-          - node.labels.immich == true
-      restart_policy:
-        condition: on-failure
       labels:
         traefik.enable: "true"
+        traefik.docker.network: traefik-net
         traefik.http.routers.immich.rule: Host(`immich.schollar.dev`)
         traefik.http.routers.immich.entrypoints: websecure
         traefik.http.routers.immich.tls: "true"

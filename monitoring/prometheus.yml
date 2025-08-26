@@ -15,3 +15,60 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
+
+    - job_name: 'traefik'
+    metrics_path: /metrics
+    dns_sd_configs:
+      - names: ['tasks.traefik']
+        type: 'A'
+        port: 9100
+    # optional: keep instance readable
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # --- new: Node exporter on every Swarm node (global service) ---
+  - job_name: 'swarm-node-exporter'
+    dns_sd_configs:
+      - names: ['tasks.node-exporter']
+        type: 'A'
+        port: 9100
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # --- new: cAdvisor per node (global service) ---
+  - job_name: 'swarm-cadvisor'
+    scrape_interval: 30s
+    dns_sd_configs:
+      - names: ['tasks.cadvisor']
+        type: 'A'
+        port: 8080
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # --- new: Blackbox HTTP probes (one replica service) ---
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://schollar.dev
+          - https://traefik.schollar.dev
+          - https://grafana.schollar.dev
+          - https://prometheus.schollar.dev
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # --- new: Proxmox API exporter (single service) ---
+  - job_name: 'pve-exporter'
+    scrape_interval: 45s
+    static_configs:
+      - targets: ['pve-exporter:9221']

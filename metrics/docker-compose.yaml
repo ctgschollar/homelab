@@ -1,0 +1,103 @@
+version: "3.8"
+
+networks:
+  traefik-net:
+    external: true
+
+configs:
+  blackbox.yml:
+    file: ./blackbox.yml
+  pve.yml:
+    file: ./pve.yml
+  alertmanager.yml:
+    file: ./alertmanager.yml
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command: ["--path.rootfs=/host"]
+    networks: [traefik-net]
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+      restart_policy: { condition: on-failure }
+      labels:
+        # (optional) expose via Traefik if you want external access locked down
+        traefik.enable: "false"
+    volumes:
+      - /:/host:ro,rshared
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/mtab:/host/etc/mtab:ro
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    networks: [traefik-net]
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+      restart_policy: { condition: on-failure }
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    networks: [traefik-net]
+    configs:
+      - source: blackbox.yml
+        target: /etc/blackbox_exporter/blackbox.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy: { condition: on-failure }
+    ports:
+      - target: 9115
+        published: 9115
+        protocol: tcp
+        mode: host
+    environment:
+      - BLACKBOX_EXPORTER_WEB_LISTEN_ADDRESS=:9115
+
+  pve-exporter:
+    image: prompve/prometheus-pve-exporter:latest
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.metrics == true
+    configs:
+      - source: pve.yml
+        target: /etc/prometheus/pve.yml
+    environment:
+      - PVE_VERIFY_SSL=true
+    # default port 9221; Prometheus will scrape it over the overlay
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    networks: [traefik-net]
+    configs:
+      - source: alertmanager.yml
+        target: /etc/alertmanager/alertmanager.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.metrics == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.alertmanager.rule: Host(`alerts.schollar.dev`)
+        traefik.http.routers.alertmanager.entrypoints: websecure
+        traefik.http.routers.alertmanager.tls.certresolver: cf
+        traefik.http.services.alertmanager.loadbalancer.server.port: "9093"
+

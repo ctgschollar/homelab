@@ -1,0 +1,13 @@
+default:
+  user: "monitoring@pve!prom"
+  token_name: "scrape"
+  token_value: "REDACTED_LONG_TOKEN"
+  verify_ssl: true
+  timeout: 10
+targets:
+  - "prx01.schollar.dev"
+  - "prx02.schollar.dev"
+  - "prx03.schollar.dev"
+  - "prx04.schollar.dev"
+  - "prx05.schollar.dev"
+

@@ -16,7 +16,7 @@ scrape_configs:
       - source_labels: [__address__]
         target_label: instance
 
-    - job_name: 'traefik'
+  - job_name: 'traefik'
     metrics_path: /metrics
     dns_sd_configs:
       - names: ['tasks.traefik']

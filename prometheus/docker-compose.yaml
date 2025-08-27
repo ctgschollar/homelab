@@ -1,0 +1,60 @@
+version: "3.8"
+
+configs:
+  prometheus.yml:
+    name: prometheus.yml
+    data: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        # Prometheus self-scrape
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+
+        # Ceph (ceph-mgr prometheus module)
+        - job_name: 'ceph'
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+              - '192.168.3.103:9283'
+          # Optional: label the instance neatly in Grafana
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: instance
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"             # allows POST /-/reload
+      - "--storage.tsdb.retention.time=15d"  # tweak as you like
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+    configs:
+      - source: prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.metrics == true       # choose where it runs
+      update_config:
+        order: start-first
+        parallelism: 1
+    networks:
+      - monitor-net
+
+networks:
+  monitor-net:
+
+volumes:
+  prometheus-data:
+

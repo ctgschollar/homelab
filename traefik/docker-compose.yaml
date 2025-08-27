@@ -18,6 +18,14 @@ services:
       - "--certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare"
       - "--certificatesresolvers.cf.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
 
+      # Prometheus metrics
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addRoutersLabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
+      - "--entrypoints.metrics.address=:9100"
+      - "--metrics.prometheus.entryPoint=metrics"
+
     environment:
       ACME_EMAIL: "ctgschollar@gmail.com"
       DOMAIN_BASE: ".schollar.dev"

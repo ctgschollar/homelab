@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      LOG_LEVEL: info          # debug, info, warning, error
+      LOG_HTML: "false"
+      CAPTCHA_SOLVER: none
+      PORT: 8191
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.flaresolverr.rule: Host(`flaresolverr.schollar.dev`)
+        traefik.http.routers.flaresolverr.entrypoints: websecure
+        traefik.http.routers.flaresolverr.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.flaresolverr.loadbalancer.server.port: "8191"
+
+networks:
+  traefik-net:
+    external: true
+

@@ -64,6 +64,9 @@ scrape_configs:
       - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
         regex: node-exporter
         action: keep
+      - source_labels: [__meta_dockerswarm_task_network_ip]
+        target_label: __address__
+        replacement: '${1}:9100'
       # Use the Swarm node's hostname as instance
       - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
@@ -97,6 +100,9 @@ scrape_configs:
       - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
         regex: cadvisor
         action: keep
+      - source_labels: [__meta_dockerswarm_task_network_ip]
+        target_label: __address__
+        replacement: '${1}:8080'
       - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
       - source_labels: [__meta_dockerswarm_service_name]

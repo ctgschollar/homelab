@@ -57,8 +57,8 @@ scrape_configs:
       - host: 'unix:///var/run/docker.sock'
         role: tasks
         filters:
-          - label=prometheus.scrape=true
-          - label=prometheus.job=node-exporter
+        - name: label
+          values: ["prometheus.scrape=true", "prometheus.job=node-exporter"]
     relabel_configs:
       # Only keep node-exporter tasks
       - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
@@ -91,8 +91,8 @@ scrape_configs:
       - host: 'unix:///var/run/docker.sock'
         role: tasks
         filters:
-          - label=prometheus.scrape=true
-          - label=prometheus.job=cadvisor
+        - name: label
+          values: ["prometheus.scrape=true", "prometheus.job=node-exporter"]
     relabel_configs:
       - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
         regex: cadvisor
@@ -142,7 +142,7 @@ scrape_configs:
       - host: 'unix:///var/run/docker.sock'
         role: tasks
         filters:
-          - label=prometheus.blackbox=true
+          - label: prometheus.blackbox=true
     relabel_configs:
       # Keep only one task per service (avoid probing N replicas). Keep the leader by task slot.
       - source_labels: [__meta_dockerswarm_task_slot]

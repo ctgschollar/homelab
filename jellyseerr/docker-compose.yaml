@@ -1,0 +1,45 @@
+version: "3.8"
+
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  jellyseerr_config:
+
+services:
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    networks:
+      - traefik-net
+    environment:
+      - TZ=Africa/Johannesburg
+      - PUID=1000         # adjust if your UID differs
+      - PGID=1000         # adjust if your GID differs
+      - UMASK=002
+    volumes:
+      - jellyseerr_config:/app/config
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-net
+
+        # Router
+        - traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.schollar.dev`)
+        - traefik.http.routers.jellyseerr.entrypoints=websecure
+        - traefik.http.routers.jellyseerr.tls=true
+        - traefik.http.routers.jellyseerr.tls.certresolver=cf
+
+        # Service
+        - traefik.http.services.jellyseerr.loadbalancer.server.port=5055
+
+        # (Optional) basic security headers
+        - traefik.http.middlewares.jellyseerr-sec.headers.stsSeconds=31536000
+        - traefik.http.middlewares.jellyseerr-sec.headers.stsIncludeSubdomains=true
+        - traefik.http.middlewares.jellyseerr-sec.headers.stsPreload=true
+        - traefik.http.routers.jellyseerr.middlewares=jellyseerr-sec@docker
+

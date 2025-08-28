@@ -67,8 +67,22 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
-  # --- new: Proxmox API exporter (single service) ---
-  - job_name: 'pve-exporter'
+  - job_name: 'pve-api'
     scrape_interval: 45s
+    metrics_path: /pve
+    params:
+      module: [default]
     static_configs:
-      - targets: ['pve-exporter:9221']
+      - targets:
+          - 'prx01.schollar.dev:8006'
+          - 'prx02.schollar.dev:8006'
+          - 'prx03.schollar.dev:8006'
+          - 'prx04.schollar.dev:8006'
+          - 'prx05.schollar.dev:8006'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: pve-exporter:9221   # exporter service inside Swarm

@@ -24,7 +24,7 @@ secrets:
 services:
   prometheus:
     image: prom/prometheus:v2.54.1
-    group_add: ["996"]
+    user: "0:0"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"

@@ -1,0 +1,62 @@
+version: "3.8"
+
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  clipcascade_data:
+    driver: local
+    # If you prefer a host bind (e.g., CephFS path), swap to:
+    # driver_opts:
+    #   type: none
+    #   device: /mnt/pve/cephfs/apps/clipcascade
+    #   o: bind
+
+services:
+  clipcascade:
+    image: sathvikrao/clipcascade:latest
+    # The server listens on 8080 by default
+    # (can be changed via CC_PORT if you must)
+    networks:
+      - traefik-net
+    volumes:
+      - clipcascade_data:/database   # persistent user data
+    environment:
+      # ---- Core knobs (see project README) ----
+      - CC_MAX_MESSAGE_SIZE_IN_MiB=1
+      - CC_P2P_ENABLED=false
+      # Lock CORS to your domain (recommended)
+      - CC_ALLOWED_ORIGINS=https://clip.your-domain.tld
+      # Enable signups temporarily to create accounts, then set to false
+      - CC_SIGNUP_ENABLED=false
+      # New in v3.1.0: optional WebSocket limits
+      # - CC_MAX_WS_GLOBAL_CONNECTIONS=1000
+      # - CC_MAX_WS_CONNECTIONS_PER_USER=10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        # Pin to a node with the persistent volume if using local driver
+        # Replace with your label or remove if you use a shared volume
+        # constraints:
+        #   - node.labels.role == infra
+        preferences:
+          - spread: node.id
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.clipcascade.rule=Host(`clip.your-domain.tld`)
+        - traefik.http.routers.clipcascade.entrypoints=websecure
+        - traefik.http.routers.clipcascade.tls=true
+        # Use your existing CF resolver name
+        - traefik.http.routers.clipcascade.tls.certresolver=cf
+        - traefik.http.services.clipcascade.loadbalancer.server.port=8080
+        # Optional middlewares (HSTS, compression, etc.) if you have them
+        # - traefik.http.routers.clipcascade.middlewares=security@file
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+

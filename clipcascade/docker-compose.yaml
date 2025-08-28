@@ -25,6 +25,12 @@ services:
       - CC_P2P_ENABLED=false
       - CC_ALLOWED_ORIGINS=https://clip.schollar.dev
       - CC_SIGNUP_ENABLED=false
+      - SERVER_FORWARD_HEADERS_STRATEGY=framework     # Spring ≥2.6
+      # (If you're on older Spring, also add: SERVER_USE_FORWARD_HEADERS=true)
+
+      # Force secure cookie + modern SameSite
+      - SERVER_SERVLET_SESSION_COOKIE_SECURE=true
+      - SERVER_SERVLET_SESSION_COOKIE_SAME-SITE=None
       # Optional websocket limits (3.1.0+):
       # - CC_MAX_WS_GLOBAL_CONNECTIONS=1000
       # - CC_MAX_WS_CONNECTIONS_PER_USER=10

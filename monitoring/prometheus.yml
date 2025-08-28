@@ -55,10 +55,21 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-          - https://schollar.dev
+          - https://jellyfin.schollar.dev
+          - https://prx01.schollar.dev:8006
+          - https://prx02.schollar.dev:8006
+          - https://prx03.schollar.dev:8006
+          - https://prx04.schollar.dev:8006
+          - https://prx05.schollar.dev:8006 
           - https://traefik.schollar.dev
           - https://grafana.schollar.dev
           - https://prometheus.schollar.dev
+          - https://portainer.schollar.dev
+          - https://immich.schollar.dev
+          - https://qbittorrent.schollar.dev
+          - https://sonarr.schollar.dev
+          - https://radarr.schollar.dev
+          - https://homepage.schollar.dev
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

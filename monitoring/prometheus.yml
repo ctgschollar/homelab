@@ -142,7 +142,8 @@ scrape_configs:
       - host: 'unix:///var/run/docker.sock'
         role: tasks
         filters:
-          - label: prometheus.blackbox=true
+          - name: label
+            values: ["prometheus.blackbox=true"]
     relabel_configs:
       # Keep only one task per service (avoid probing N replicas). Keep the leader by task slot.
       - source_labels: [__meta_dockerswarm_task_slot]

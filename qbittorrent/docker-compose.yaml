@@ -44,12 +44,12 @@ services:
     # Peer ports (for good swarm connectivity). Make sure qBittorrent's
     # Settings → Connections → "Listening Port" matches the published port.
     ports:
-      - target: 6881
-        published: 6881
+      - target: 65283 
+        published: 65283
         protocol: tcp
         mode: host
-      - target: 6881
-        published: 6881
+      - target: 65283
+        published: 65283
         protocol: udp
         mode: host
 

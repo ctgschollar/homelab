@@ -48,72 +48,44 @@ scrape_configs:
         replacement: 'traefik'
 
   - job_name: 'swarm-node-exporter'
-    dockerswarm_sd_configs:
-      - host: 'unix:///var/run/docker.sock'
-        role: tasks
-        filters:
-          - name: label
-            values: ["prometheus.scrape=true", "prometheus.job=node-exporter"]
+    dns_sd_configs:
+      - names: ['tasks.metrics_node-exporter']   # <stack>_<service>
+        type: 'A'
+        port: 9100
+        refresh_interval: 30s
     relabel_configs:
-      # keep tasks attached to traefik-net
-      - source_labels: [__meta_dockerswarm_network_name]
-        regex: traefik-net
-        action: keep
-      # keep only node-exporter tasks
-      - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
-        regex: node-exporter
-        action: keep
-      # use the task IP on that network + metrics port
-      - source_labels: [__meta_dockerswarm_task_network_ip]
-        target_label: __address__
-        replacement: '${1}:9100'
-        action: replace
-      # readable labels
-      - source_labels: [__meta_dockerswarm_node_hostname]
+      # prettier instance (IP only)
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
         target_label: instance
-      - source_labels: [__meta_dockerswarm_service_name]
-        target_label: swarm_service
-      - source_labels: [__meta_dockerswarm_stack_name]
-        target_label: swarm_stack
+        replacement: '${1}'
+      # grouping labels
       - target_label: cluster
         replacement: 'homelab'
       - target_label: role
         replacement: 'swarm'
       - target_label: exporter
         replacement: 'node'
-
+  
+  # --- cAdvisor per node (DNS-SD) ---
   - job_name: 'swarm-cadvisor'
     scrape_interval: 30s
-    dockerswarm_sd_configs:
-      - host: 'unix:///var/run/docker.sock'
-        role: tasks
-        filters:
-          - name: label
-            values: ["prometheus.scrape=true", "prometheus.job=cadvisor"]   # <-- fixed
+    dns_sd_configs:
+      - names: ['tasks.metrics_cadvisor']       # <stack>_<service>
+        type: 'A'
+        port: 8080
+        refresh_interval: 30s
     relabel_configs:
-      - source_labels: [__meta_dockerswarm_network_name]
-        regex: traefik-net
-        action: keep
-      - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
-        regex: cadvisor
-        action: keep
-      - source_labels: [__meta_dockerswarm_task_network_ip]
-        target_label: __address__
-        replacement: '${1}:8080'
-        action: replace
-      - source_labels: [__meta_dockerswarm_node_hostname]
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
         target_label: instance
-      - source_labels: [__meta_dockerswarm_service_name]
-        target_label: swarm_service
-      - source_labels: [__meta_dockerswarm_stack_name]
-        target_label: swarm_stack
+        replacement: '${1}'
       - target_label: cluster
         replacement: 'homelab'
       - target_label: role
         replacement: 'swarm'
       - target_label: exporter
         replacement: 'cadvisor'
-
 
   # --- Proxmox nodes' node_exporter (static list) ---
   - job_name: 'proxmox-node-exporter'

@@ -23,7 +23,12 @@ services:
         constraints: [node.platform.os == linux]
       restart_policy: { condition: on-failure }
       labels:
-        # (optional) expose via Traefik if you want external access locked down
+        # NEW: let Prometheus auto-discover this service via dockerswarm_sd
+        prometheus.scrape: "true"
+        prometheus.job: "node-exporter"
+        # OPTIONAL: tag this exporter itself (shows up on the task in Prometheus)
+        metrics.category: "infra"
+        metrics.stack: "monitoring"
         traefik.enable: "false"
     volumes:
       - /:/host:ro,rshared
@@ -39,6 +44,13 @@ services:
       placement:
         constraints: [node.platform.os == linux]
       restart_policy: { condition: on-failure }
+      labels:
+        # NEW: let Prometheus auto-discover this service via dockerswarm_sd
+        prometheus.scrape: "true"
+        prometheus.job: "cadvisor"
+        # OPTIONAL: tags for grouping your *exporter* tasks
+        metrics.category: "infra"
+        metrics.stack: "monitoring"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -56,6 +68,12 @@ services:
       mode: replicated
       replicas: 1
       restart_policy: { condition: on-failure }
+      labels:
+        # OPTIONAL: if you want to probe blackbox itself via the auto-probe job
+        prometheus.blackbox: "true"
+        metrics.probe_url: "http://blackbox-exporter:9115/health"
+        metrics.category: "infra"
+        metrics.stack: "monitoring"
     ports:
       - target: 9115
         published: 9115
@@ -73,6 +91,10 @@ services:
       placement:
         constraints:
           - node.labels.metrics == true
+      labels:
+        # OPTIONAL: include it in auto blackbox if you expose an internal health URL
+        metrics.category: "infra"
+        metrics.stack: "monitoring"
     configs:
       - source: pve.yml
         target: /etc/prometheus/pve.yml
@@ -100,4 +122,9 @@ services:
         traefik.http.routers.alertmanager.entrypoints: websecure
         traefik.http.routers.alertmanager.tls.certresolver: cf
         traefik.http.services.alertmanager.loadbalancer.server.port: "9093"
+        # OPTIONAL: expose to auto blackbox
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://alerts.schollar.dev"
+        metrics.category: "infra"
+        metrics.stack: "monitoring"
 

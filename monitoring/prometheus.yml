@@ -3,81 +3,184 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  # --- Prometheus self ---
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+        labels:
+          cluster: 'homelab'
+          role: 'infra'
+          exporter: 'prometheus'
 
+  # --- Ceph mgr/prometheus exporter (static) ---
   - job_name: 'ceph'
     metrics_path: /metrics
     static_configs:
       - targets:
-        - '192.168.3.103:9283'
+          - '192.168.3.103:9283'
+        labels:
+          cluster: 'homelab'
+          role: 'storage'
+          exporter: 'ceph'
     relabel_configs:
       - source_labels: [__address__]
+        regex: '([^:]+):\d+'
         target_label: instance
+        replacement: '${1}'
 
+  # --- Traefik (Swarm service via DNS-SD) ---
   - job_name: 'traefik'
     metrics_path: /metrics
     dns_sd_configs:
       - names: ['tasks.traefik']
         type: 'A'
         port: 9100
-    # optional: keep instance readable
     relabel_configs:
       - source_labels: [__address__]
+        regex: '([^:]+):\d+'
         target_label: instance
+        replacement: '${1}'
+      - target_label: cluster
+        replacement: 'homelab'
+      - target_label: role
+        replacement: 'swarm'
+      - target_label: exporter
+        replacement: 'traefik'
 
-  # --- new: Node exporter on every Swarm node (global service) ---
+  # --- Node exporter running on Swarm nodes (recommended: dockerswarm_sd) ---
+  # Add these labels to your node-exporter *service*:
+  #   deploy.labels:
+  #     prometheus.scrape: "true"
+  #     prometheus.job: "node-exporter"
   - job_name: 'swarm-node-exporter'
-    dns_sd_configs:
-      - names: ['tasks.node-exporter']
-        type: 'A'
-        port: 9100
+    dockerswarm_sd_configs:
+      - host: 'unix:///var/run/docker.sock'
+        role: tasks
+        filters:
+          - label=prometheus.scrape=true
+          - label=prometheus.job=node-exporter
     relabel_configs:
-      - source_labels: [__address__]
+      # Only keep node-exporter tasks
+      - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
+        regex: node-exporter
+        action: keep
+      # Use the Swarm node's hostname as instance
+      - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
+      # Helpful Swarm labels
+      - source_labels: [__meta_dockerswarm_service_name]
+        target_label: swarm_service
+      - source_labels: [__meta_dockerswarm_stack_name]
+        target_label: swarm_stack
+      # Grouping labels
+      - target_label: cluster
+        replacement: 'homelab'
+      - target_label: role
+        replacement: 'swarm'
+      - target_label: exporter
+        replacement: 'node'
 
-  # --- new: cAdvisor per node (global service) ---
+  # --- cAdvisor per Swarm node (recommended: dockerswarm_sd) ---
+  # Add these labels to your cadvisor *service*:
+  #   deploy.labels:
+  #     prometheus.scrape: "true"
+  #     prometheus.job: "cadvisor"
   - job_name: 'swarm-cadvisor'
     scrape_interval: 30s
-    dns_sd_configs:
-      - names: ['tasks.cadvisor']
-        type: 'A'
-        port: 8080
+    dockerswarm_sd_configs:
+      - host: 'unix:///var/run/docker.sock'
+        role: tasks
+        filters:
+          - label=prometheus.scrape=true
+          - label=prometheus.job=cadvisor
     relabel_configs:
-      - source_labels: [__address__]
+      - source_labels: [__meta_dockerswarm_service_label_prometheus_job]
+        regex: cadvisor
+        action: keep
+      - source_labels: [__meta_dockerswarm_node_hostname]
         target_label: instance
+      - source_labels: [__meta_dockerswarm_service_name]
+        target_label: swarm_service
+      - source_labels: [__meta_dockerswarm_stack_name]
+        target_label: swarm_stack
+      - target_label: cluster
+        replacement: 'homelab'
+      - target_label: role
+        replacement: 'swarm'
+      - target_label: exporter
+        replacement: 'cadvisor'
 
-  # --- new: Blackbox HTTP probes (one replica service) ---
-  - job_name: 'blackbox-http'
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
+  # --- Proxmox nodes' node_exporter (static list) ---
+  - job_name: 'proxmox-node-exporter'
     static_configs:
       - targets:
-          - https://jellyfin.schollar.dev
-          - https://prx01.schollar.dev:8006
-          - https://prx02.schollar.dev:8006
-          - https://prx03.schollar.dev:8006
-          - https://prx04.schollar.dev:8006
-          - https://prx05.schollar.dev:8006 
-          - https://traefik.schollar.dev
-          - https://grafana.schollar.dev
-          - https://prometheus.schollar.dev
-          - https://portainer.schollar.dev
-          - https://immich.schollar.dev
-          - https://qbittorrent.schollar.dev
-          - https://sonarr.schollar.dev
-          - https://radarr.schollar.dev
-          - https://homepage.schollar.dev
+          - 'prx01.schollar.dev:9100'
+          - 'prx02.schollar.dev:9100'
+          - 'prx03.schollar.dev:9100'
+          - 'prx04.schollar.dev:9100'
+          - 'prx05.schollar.dev:9100'
+        labels:
+          cluster: 'homelab'
+          role: 'proxmox'
+          exporter: 'node'
     relabel_configs:
       - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
+        regex: '([^:]+):\d+'
         target_label: instance
+        replacement: '${1}'
+
+  # --- Auto blackbox HTTP for Traefik-fronted services (Swarm) ---
+  # Add these labels on each service you want probed:
+  #   deploy.labels:
+  #     prometheus.blackbox: "true"
+  #     metrics.probe_url: "https://service.schollar.dev"
+  - job_name: 'blackbox-http-swarm'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]     # adjust if you have custom Blackbox modules
+    dockerswarm_sd_configs:
+      - host: 'unix:///var/run/docker.sock'
+        role: tasks
+        filters:
+          - label=prometheus.blackbox=true
+    relabel_configs:
+      # Keep only one task per service (avoid probing N replicas). Keep the leader by task slot.
+      - source_labels: [__meta_dockerswarm_task_slot]
+        regex: "1"
+        action: keep
+  
+      # Only keep tasks that actually have a probe URL defined
+      - source_labels: [__meta_dockerswarm_service_label_metrics_probe_url]
+        regex: .+
+        action: keep
+  
+      # Use the declared probe URL as the blackbox target
+      - source_labels: [__meta_dockerswarm_service_label_metrics_probe_url]
+        target_label: __param_target
+  
+      # Nice 'instance' label = hostname of the URL (e.g., grafana.schollar.dev)
+      - source_labels: [__param_target]
+        regex: 'https?://([^/]+)(/.*)?'
+        replacement: '$1'
+        target_label: instance
+  
+      # Helpful grouping labels
+      - source_labels: [__meta_dockerswarm_service_name]
+        target_label: swarm_service
+      - source_labels: [__meta_dockerswarm_stack_name]
+        target_label: swarm_stack
+      - target_label: cluster
+        replacement: 'homelab'
+      - target_label: role
+        replacement: 'probe'
+      - target_label: exporter
+        replacement: 'blackbox'
+  
+      # Send the probe to the blackbox exporter service
       - target_label: __address__
         replacement: blackbox-exporter:9115
-
+          
+  # --- Proxmox API exporter (pve-exporter inside Swarm) ---
   - job_name: 'pve-api'
     scrape_interval: 45s
     metrics_path: /pve
@@ -90,10 +193,15 @@ scrape_configs:
           - 'prx03.schollar.dev:8006'
           - 'prx04.schollar.dev:8006'
           - 'prx05.schollar.dev:8006'
+        labels:
+          cluster: 'homelab'
+          role: 'proxmox'
+          exporter: 'pve'
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement: pve-exporter:9221   # exporter service inside Swarm
+        replacement: pve-exporter:9221
+

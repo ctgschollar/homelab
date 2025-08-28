@@ -34,13 +34,14 @@ services:
         target: /etc/prometheus/prometheus.yml
     volumes:
       - prometheus-data:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [traefik-net]
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
-          - node.labels.metrics == true
+          - node.role == manager
       update_config:
         order: start-first
         parallelism: 1
@@ -51,6 +52,9 @@ services:
         traefik.http.routers.prometheus.entrypoints: websecure
         traefik.http.routers.prometheus.tls.certresolver: cf
         traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+        # Metrics
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://prometheus.schollar.dev"
 
   grafana:
     image: grafana/grafana:10.4.5

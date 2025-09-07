@@ -28,7 +28,7 @@ services:
         max_attempts: 0
       placement:
         constraints:
-          - node.labels.db == true
+          - node.labels.linstor == true
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net

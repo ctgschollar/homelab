@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  codimd:
+    image: hackmdio/hackmd:2.5.1
+    environment:
+      # --- CodiMD behind Traefik (SSL terminates at Traefik) ---
+      CMD_DOMAIN: "hdoc.schollar.dev"
+      CMD_URL_ADDPORT: "false"
+      CMD_PROTOCOL_USESSL: "true"
+
+      # --- DB (external Postgres) ---
+      # CodiMD prefers a single URL env var:
+      # format: postgres://USER:PASS@HOST:PORT/DBNAME
+      CMD_DB_URL: "postgres://hedgedoc:u08I8jYTw@0JQJ3p@pg.schollar.dev:5432/hedgedoc"
+
+      # --- Security / sessions ---
+      NODE_ENV: "production"
+      CMD_SESSION_SECRET: "p91rXXA3ss5SMVlrwR5Xvm7VE0tLFygSTm0uagdQKMCMSg8mCNGvXehkQh2RENSv"
+
+      # --- Uploads stored on volume ---
+      CMD_IMAGE_UPLOAD_TYPE: "filesystem"
+
+      # optional: set stricter defaults
+      # CMD_DEFAULT_PERMISSION: "limited"
+      # CMD_ALLOW_ANONYMOUS: "false"
+      # CMD_ALLOW_ANONYMOUS_EDITS: "false"
+
+    networks: [traefik-net]
+
+    volumes:
+      # Most CodiMD/HackMD builds expect uploads under /codimd or /hedgedoc.
+      # Start with /codimd/public/uploads; if uploads fail, try switching to /hedgedoc/public/uploads.
+      - codimd-uploads:/codimd/public/uploads
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.codimd.rule: "Host(`hdoc.schollar.dev`)"
+        traefik.http.routers.codimd.entrypoints: "websecure"
+        traefik.http.routers.codimd.tls.certresolver: cf
+        traefik.http.services.codimd.loadbalancer.server.port: "3000"
+
+volumes:
+  codimd-uploads:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "10G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+networks:
+  traefik-net:
+    external: true

@@ -23,6 +23,8 @@ services:
 
       # --- Uploads stored on volume ---
       CMD_IMAGE_UPLOAD_TYPE: "filesystem"
+
+    networks: [traefik-net]
     
     secrets:
       - cmd_pg_password
@@ -71,4 +73,8 @@ secrets:
   cmd_pg_password:
     external: true
   hedgedoc_session_secret:
+    external: true
+
+networks:
+  traefik-net:
     external: true

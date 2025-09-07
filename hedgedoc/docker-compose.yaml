@@ -15,8 +15,8 @@ services:
       CMD_DB_PORT: "5432"
       CMD_DB_DATABASE: "hedgedoc"
       CMD_DB_USERNAME: "hedgedoc"
-      CMD_DB_PASSWORD_FILE: "/run/secrets/cmd_pg_password"
-      CMD_SESSION_SECRET_FILE: "/run/secrets/hedgedoc_session_secret"
+      CMD_DB_PASSWORD: "u08I8jYTw@0JQJ3p"
+      CMD_SESSION_SECRET: "p91rXXA3ss5SMVlrwR5Xvm7VE0tLFygSTm0uagdQKMCMSg8mCNGvXehkQh2RENSv"
 
       # --- Security / sessions ---
       NODE_ENV: "production"

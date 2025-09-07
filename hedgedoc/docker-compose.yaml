@@ -43,7 +43,7 @@ services:
         traefik.enable: "true"
         traefik.http.routers.hedgedoc.rule: "Host(`hdoc.schollar.dev`)"
         traefik.http.routers.hedgedoc.entrypoints: "websecure"
-        traefik.http.routers.hedgedoc.tls: "true"
+        traefik.http.routers.hedgedoc.tls.certresolver: cf
         traefik.http.services.hedgedoc.loadbalancer.server.port: "3000"
         # (Optional) HSTS/headers via middleware:
         # traefik.http.middlewares.hd-sec.headers.stsSeconds: "31536000"
@@ -55,14 +55,7 @@ services:
         # ===========================
         # Mark this service to be probed by blackbox
         prometheus.blackbox: "true"
-        # Module to use from blackbox.yml
-        prometheus.blackbox.module: "http_2xx"
-        # How to reach it from outside (Traefik URL)
-        prometheus.blackbox.scheme: "https"
-        # Optional: path to probe (default "/")
-        prometheus.blackbox.path: "/"
-        # Hostname to probe (usually your public DNS)
-        prometheus.blackbox.host: "hdoc.schollar.dev"
+        metrics.probe_url: "https://hdoc.schollar.dev"
 
 volumes:
   hedgedoc-uploads:

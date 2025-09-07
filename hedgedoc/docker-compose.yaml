@@ -71,7 +71,7 @@ volumes:
       size: "10G"
       fs: "xfs"
       replicas: "2"           # 2-way replication on SSD pool
-      storagepool: "ssd_pool" # your LINSTOR SSD pool
+      storagepool: "pool_ssd" # your LINSTOR SSD pool
 
 secrets:
   cmd_pg_password:

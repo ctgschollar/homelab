@@ -32,7 +32,6 @@ services:
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net
-        # TCP passthrough via Traefik entrypoint "pg"
         traefik.tcp.routers.postgres.entrypoints: pg
         traefik.tcp.routers.postgres.rule: HostSNI(`*`)
         traefik.tcp.services.postgres.loadbalancer.server.port: "5432"
@@ -44,10 +43,13 @@ networks:
 
 volumes:
   postgres_data:
-    name: postgres_postgres_data
-    external: true
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      storagepool: pool_ssd
+      replicas: "2"
+      fs: xfs
+      size: "50G"
 
 secrets:
   postgres_password:
     external: true
-

@@ -41,6 +41,7 @@ services:
         # Traefik (HTTPS router)
         # ===========================
         traefik.enable: "true"
+        traefik.docker.network: traefik-net
         traefik.http.routers.hedgedoc.rule: "Host(`hdoc.schollar.dev`)"
         traefik.http.routers.hedgedoc.entrypoints: "websecure"
         traefik.http.routers.hedgedoc.tls.certresolver: cf

@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  hedgedoc:
+    image: quay.io/hedgedoc/hedgedoc:1.9.9
+    environment:
+      # --- HedgeDoc behind Traefik (SSL terminates at Traefik) ---
+      CMD_DOMAIN: "hdoc.schollar.dev"
+      CMD_URL_ADDPORT: "false"
+      CMD_PROTOCOL_USESSL: "true"   # Traefik forwards X-Forwarded-Proto=https
+
+      # --- DB (already running) ---
+      CMD_DB_DIALECT: "postgres"
+      CMD_DB_HOST: "pg.schollar.dev"
+      CMD_DB_PORT: "5432"
+      CMD_DB_DATABASE: "hedgedoc"
+      CMD_DB_USERNAME: "hedgedoc"
+      CMD_DB_PASSWORD_FILE: "/run/secrets/cmd_pg_password"
+      CMD_SESSION_SECRET_FILE: "/run/secrets/hedgedoc_session_secret"
+
+      # --- Security / sessions ---
+      NODE_ENV: "production"
+
+      # --- Uploads stored on volume ---
+      CMD_IMAGE_UPLOAD_TYPE: "filesystem"
+    
+    secrets:
+      - cmd_pg_password
+      - hedgedoc_session_secret
+
+    volumes:
+      - hedgedoc-uploads:/hedgedoc/public/uploads
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+      labels:
+        # ===========================
+        # Traefik (HTTPS router)
+        # ===========================
+        traefik.enable: "true"
+        traefik.http.routers.hedgedoc.rule: "Host(`hdoc.schollar.dev`)"
+        traefik.http.routers.hedgedoc.entrypoints: "websecure"
+        traefik.http.routers.hedgedoc.tls: "true"
+        traefik.http.services.hedgedoc.loadbalancer.server.port: "3000"
+        # (Optional) HSTS/headers via middleware:
+        # traefik.http.middlewares.hd-sec.headers.stsSeconds: "31536000"
+        # traefik.http.routers.hedgedoc.middlewares: "hd-sec"
+
+        # ===========================
+        # Prometheus Blackbox labels
+        # (consumed by the job below)
+        # ===========================
+        # Mark this service to be probed by blackbox
+        prometheus.blackbox: "true"
+        # Module to use from blackbox.yml
+        prometheus.blackbox.module: "http_2xx"
+        # How to reach it from outside (Traefik URL)
+        prometheus.blackbox.scheme: "https"
+        # Optional: path to probe (default "/")
+        prometheus.blackbox.path: "/"
+        # Hostname to probe (usually your public DNS)
+        prometheus.blackbox.host: "hdoc.schollar.dev"
+
+volumes:
+  hedgedoc-uploads:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "10G"
+      fs: "xfs"
+      replicas: "2"           # 2-way replication on SSD pool
+      storagepool: "ssd-pool" # your LINSTOR SSD pool
+
+secrets:
+  cmd_pg_password:
+    external: true
+  hedgedoc_session_secret:
+    external: true

@@ -49,6 +49,10 @@ services:
         - traefik.http.routers.clipcascade.tls=true
         - traefik.http.routers.clipcascade.tls.certresolver=cf
         - traefik.http.services.clipcascade.loadbalancer.server.port=8080
+
+        # Prometheus Blackbox monitoring
+        - prometheus.blackbox=true
+        - metrics.probe_url=https://clip.schollar.dev
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s

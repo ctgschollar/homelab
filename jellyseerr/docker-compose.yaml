@@ -43,3 +43,7 @@ services:
         - traefik.http.middlewares.jellyseerr-sec.headers.stsPreload=true
         - traefik.http.routers.jellyseerr.middlewares=jellyseerr-sec@docker
 
+        # Prometheus Blackbox monitoring
+        - prometheus.blackbox=true
+        - metrics.probe_url=https://jellyseerr.schollar.dev
+

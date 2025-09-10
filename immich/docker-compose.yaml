@@ -92,3 +92,7 @@ services:
         traefik.http.routers.immich.tls.certresolver: cf
         traefik.http.services.immich.loadbalancer.server.port: "2283"
 
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://immich.schollar.dev"
+

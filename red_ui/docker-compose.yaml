@@ -25,3 +25,7 @@ services:
         - traefik.http.routers.red-ui-backend.rule: Host(`${DOMAIN?Variable not set}`)
         - traefik.http.routers.red-ui-backend.tls.certresolver: cf
         - traefik.http.services.red-ui-backend.loadbalancer.server.port: 8888
+
+        # Prometheus Blackbox monitoring
+        - prometheus.blackbox: "true"
+        - metrics.probe_url: https://${DOMAIN?Variable not set}

@@ -1,0 +1,43 @@
+@startuml
+title Home Network (Current)
+
+skinparam dpi 140
+skinparam rectangle {
+  BorderColor #888
+  RoundCorner 12
+}
+skinparam node {
+  BorderColor #666
+  BackgroundColor #f8f8f8
+  RoundCorner 12
+}
+skinparam ArrowColor #555
+skinparam ArrowThickness 1.2
+
+' Top-level cloud and router
+node "Internet" as INTERNET <<cloud>>
+node "MikroTik Router" as ROUTER <<router>>
+
+' LAN components
+node "Homelab Switch" as SWITCH <<switch>>
+node "Household Devices" as HOUSE <<wlan>>
+
+' Proxmox hosts
+node "PRX01" as PRX01 <<server>>
+node "PRX02" as PRX02 <<server>>
+node "PRX03" as PRX03 <<server>>
+node "PRX04" as PRX04 <<server>>
+node "PRX05" as PRX05 <<server>>
+
+' Links with bandwidth/medium labels
+INTERNET --> ROUTER : 50 Mbps Fibre
+ROUTER --> HOUSE : WiFi
+ROUTER --> SWITCH : eth2 • 1 GbE
+
+SWITCH --> PRX01 : 1 GbE
+SWITCH --> PRX02 : 1 GbE
+SWITCH --> PRX03 : 1 GbE
+SWITCH --> PRX04 : 1 GbE
+SWITCH --> PRX05 : 1 GbE
+
+@enduml

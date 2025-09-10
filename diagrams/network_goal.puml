@@ -1,0 +1,89 @@
+@startuml
+title Segregated WiFi & Homelab (Single-NIC Proxmox)
+
+skinparam dpi 140
+skinparam node {
+  BorderColor #666
+  BackgroundColor #f8f8f8
+  RoundCorner 12
+}
+skinparam package {
+  BackgroundColor #ffffff
+  BorderColor #999
+}
+skinparam ArrowColor #555
+skinparam ArrowThickness 1.2
+
+' Core
+node "Internet" as INTERNET <<cloud>>
+node "MikroTik Router\n(GW, DHCP, Firewall)" as ROUTER <<router>>
+node "Homelab Switch\n(802.1Q VLANs)" as SWITCH <<switch>>
+
+' WiFi side
+node "AP / WiFi" as AP <<wlan>>
+node "Household Devices\nVLAN 10 (10.10.10.0/24)" as WIFI <<wlan>>
+
+' Hosts (single NIC, trunk)
+package "Proxmox Cluster (Single NIC per host)\nTrunk: VLAN 20/30 tagged" as CLUSTER {
+  node "PRX01\nvmbr0 (VLAN-aware)\nHost mgmt: vmbr0.30" as PRX01 <<server>>
+  node "PRX02\nvmbr0 (VLAN-aware)\nHost mgmt: vmbr0.30" as PRX02 <<server>>
+  node "PRX03\nvmbr0 (VLAN-aware)\nHost mgmt: vmbr0.30" as PRX03 <<server>>
+  node "PRX04\nvmbr0 (VLAN-aware)\nHost mgmt: vmbr0.30" as PRX04 <<server>>
+  node "PRX05\nvmbr0 (VLAN-aware)\nHost mgmt: vmbr0.30" as PRX05 <<server>>
+}
+
+' Service tier on VLAN 20
+package "LAB-SVC VLAN 20 (10.10.20.0/24)" as LABSVC {
+  node "Traefik (VIP)\n:80/:443" as TRAEFIK <<component>>
+  node "cloudflared (HA)\nCloudflare Tunnel" as CF <<component>>
+  node "mDNS Reflector (optional)\nAvahi: VLAN10<->VLAN20" as MDNS <<component>>
+}
+
+' MGMT VLAN 30
+package "MGMT VLAN 30 (10.10.30.0/24)" as MGMT {
+  node "Proxmox Mgmt\n(PRX01..PRX05)" as PVE_MGMT <<component>>
+  node "Switch Mgmt" as SW_MGMT <<component>>
+  node "Router Mgmt" as RT_MGMT <<component>>
+}
+
+' Cloudflare side (no inbound ports)
+node "Cloudflare Edge" as CFEDGE <<cloud>>
+
+' Links
+INTERNET --> ROUTER : WAN (Fibre)
+ROUTER --> SWITCH : Trunk (VLAN 10/20/30)
+
+AP --> SWITCH : Access VLAN 10
+WIFI --> AP : WiFi (VLAN 10)
+
+' Single-NIC trunks to each host
+SWITCH --> PRX01 : Trunk (VLAN 20/30)
+SWITCH --> PRX02 : Trunk (VLAN 20/30)
+SWITCH --> PRX03 : Trunk (VLAN 20/30)
+SWITCH --> PRX04 : Trunk (VLAN 20/30)
+SWITCH --> PRX05 : Trunk (VLAN 20/30)
+
+' Services live on VLAN 20 reachable from WiFi (ports 80/443)
+PRX01 .. LABSVC : VMs/Containers tagged VLAN 20
+PRX02 .. LABSVC
+PRX03 .. LABSVC
+PRX04 .. LABSVC
+PRX05 .. LABSVC
+
+' Flow: WiFi -> Allowed services
+WIFI --> TRAEFIK : tcp/80,443 (allow-list)
+
+' Tunnel flow (egress-only)
+CFEDGE <-down-> CF : Tunnel (outbound)
+CF --> TRAEFIK : local forward (VLAN 20)
+
+' Management isolation
+ROUTER --> MGMT : Routing for 10.10.30.0/24
+WIFI -[#red,dashed]-> MGMT : blocked
+LABSVC -[#red,dashed]-> MGMT : blocked
+
+' Optional mDNS reflection (scoped)
+WIFI .. MDNS : mDNS (select services)
+LABSVC .. MDNS : mDNS (select services)
+
+@enduml

@@ -63,6 +63,10 @@ services:
         - "traefik.http.routers.traefik.service=api@internal"
         - "traefik.http.services.traefik.loadbalancer.server.port=8080"
 
+        # Prometheus Blackbox monitoring
+        - "prometheus.blackbox=true"
+        - "metrics.probe_url=https://traefik.schollar.dev"
+
 networks:
   default:
     external: true

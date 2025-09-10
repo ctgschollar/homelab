@@ -43,3 +43,7 @@ services:
         traefik.http.routers.registry.tls.certresolver: cf
         traefik.http.services.registry.loadbalancer.server.port: "5000"
 
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://registry.schollar.dev"
+

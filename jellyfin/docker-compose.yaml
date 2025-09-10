@@ -40,6 +40,10 @@ services:
         # Upstream service (Jellyfin listens on 8096 HTTP)
         traefik.http.services.jellyfin.loadbalancer.server.port: "8096"
 
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://jellyfin.schollar.dev"
+
 networks:
   traefik-net:
     external: true

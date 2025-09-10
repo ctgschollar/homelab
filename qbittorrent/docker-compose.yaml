@@ -41,6 +41,10 @@ services:
         traefik.http.routers.qb.tls.certresolver: cf
         traefik.http.services.qb.loadbalancer.server.port: "8080"
 
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://qbittorrent.schollar.dev"
+
     # Peer ports (for good swarm connectivity). Make sure qBittorrent's
     # Settings → Connections → "Listening Port" matches the published port.
     ports:

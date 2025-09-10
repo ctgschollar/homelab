@@ -6,6 +6,12 @@ networks:
 
 volumes:
   jellyseerr_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "5G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
 
 services:
   jellyseerr:
@@ -24,6 +30,9 @@ services:
       replicas: 1
       restart_policy:
         condition: any
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
       labels:
         - traefik.enable=true
         - traefik.docker.network=traefik-net

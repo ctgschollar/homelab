@@ -10,9 +10,7 @@ services:
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:
-      - type: bind
-        source: /mnt/cephfs-configs/radarr/config   # ⟵ change if you store configs elsewhere
-        target: /config
+      - radarr_config:/config
       - type: bind
         source: /mnt/shared/jellyfin/movies               # ⟵ your movies library on the host
         target: /data/movies
@@ -46,6 +44,15 @@ services:
         # Prometheus Blackbox monitoring
         prometheus.blackbox: "true"
         metrics.probe_url: "https://radarr.schollar.dev"
+
+volumes:
+  radarr_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "5G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
 
 networks:
   traefik-net:

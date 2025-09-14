@@ -12,7 +12,7 @@ services:
     volumes:
       - radarr_config:/config
       - type: bind
-        source: /mnt/shared/jellyfin/movies               # ⟵ your movies library on the host
+        source: /mnt/shared/jellyfin/media/movies         # ⟵ your movies library on the host
         target: /data/movies
       - type: bind
         source: /mnt/shared/torrent/complete              # ⟵ completed downloads

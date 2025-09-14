@@ -1,19 +1,30 @@
 version: "3.8"
 
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  jellyfin_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "10G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
 services:
   jellyfin:
     image: jellyfin/jellyfin:latest
     networks:
       - traefik-net
     volumes:
+      - jellyfin_config:/config
       - type: bind
-        source: /srv/jellyfin/config
-        target: /config
-      - type: bind
-        source: /srv/jellyfin/
+        source: /mnt/shared/jellyfin/cache
         target: /cache
       - type: bind
-        source: /mnt/shared/jellyfin/
+        source: /mnt/shared/jellyfin/media
         target: /media
     # Optional: publish the external URL Jellyfin should advertise (stream URLs, etc.)
     environment:

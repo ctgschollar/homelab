@@ -47,9 +47,13 @@ services:
 
 volumes:
   sonarr_config:
-    driver: linstor
+    driver: linbit/linstor-docker-volume
     driver_opts:
       size: 1GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+      
 
 networks:
   traefik-net:

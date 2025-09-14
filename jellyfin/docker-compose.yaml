@@ -40,12 +40,12 @@ services:
         constraints:
           - node.labels.media == true
           - node.labels.gpu == true
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all                 # or 1
-              capabilities: [gpu]
+      # resources:
+      #   reservations:
+      #     devices:
+      #       - driver: nvidia
+      #         count: all                 # or 1
+      #         capabilities: [gpu]
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net

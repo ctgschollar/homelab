@@ -10,9 +10,7 @@ services:
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:
-      - type: bind
-        source: /mnt/cephfs-configs/sonarr/config   # ← change if you keep configs elsewhere
-        target: /config
+      - sonarr_config:/config
       - type: bind
         source: /mnt/shared/jellyfin/media/series        # ← your series library on the host
         target: /data/series
@@ -46,6 +44,12 @@ services:
         # Prometheus Blackbox monitoring
         prometheus.blackbox: "true"
         metrics.probe_url: "https://sonarr.schollar.dev"
+
+volumes:
+  sonarr_config:
+    driver: linstor
+    driver_opts:
+      size: 1GB
 
 networks:
   traefik-net:

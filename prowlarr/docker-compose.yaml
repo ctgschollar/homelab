@@ -10,9 +10,7 @@ services:
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:
-      - type: bind
-        source: /mnt/cephfs-configs/prowlarr/config   # <-- change if you keep configs elsewhere
-        target: /config
+      - prowlarr_config:/config
     networks:
       - traefik-net
     deploy:
@@ -37,6 +35,12 @@ services:
         # Prometheus Blackbox monitoring
         prometheus.blackbox: "true"
         metrics.probe_url: "https://prowlarr.schollar.dev"
+
+volumes:
+  prowlarr_config:
+    driver: linstor
+    driver_opts:
+      size: 1GB
 
 networks:
   traefik-net:

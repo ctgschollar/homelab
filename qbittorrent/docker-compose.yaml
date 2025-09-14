@@ -10,9 +10,7 @@ services:
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:
-      - type: bind
-        source: /mnt/cephfs-configs/qbittorrent/config     # ← change if needed
-        target: /config
+      - qbittorrent_config:/config
       - type: bind
         source: /mnt/shared/torrent/complete                     # ← completed downloads
         target: /data/torrent/complete
@@ -56,6 +54,12 @@ services:
         published: 65283
         protocol: udp
         mode: host
+
+volumes:
+  qbittorrent_config:
+    driver: linstor
+    driver_opts:
+      size: 1GB
 
 networks:
   traefik-net:

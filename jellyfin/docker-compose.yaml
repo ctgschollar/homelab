@@ -28,7 +28,9 @@ services:
         target: /media
     # Optional: publish the external URL Jellyfin should advertise (stream URLs, etc.)
     environment:
-      JELLYFIN_PublishedServerUrl: https://jellyfin.schollar.dev
+      - JELLYFIN_PublishedServerUrl: https://jellyfin.schollar.dev
+      - NVIDIA_VISIBLE_DEVICES: all
+      - NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     deploy:
       mode: replicated
       replicas: 1
@@ -39,6 +41,13 @@ services:
       placement:
         constraints:
           - node.labels.media == true
+          - node.labels.gpu == true
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all                 # or 1
+              capabilities: [gpu]
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net

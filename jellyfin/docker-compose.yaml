@@ -26,9 +26,9 @@ services:
         target: /media
     # Optional: publish the external URL Jellyfin should advertise (stream URLs, etc.)
     environment:
-      - JELLYFIN_PublishedServerUrl: https://jellyfin.schollar.dev
-      - NVIDIA_VISIBLE_DEVICES: all
-      - NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+      JELLYFIN_PublishedServerUrl: https://jellyfin.schollar.dev
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     deploy:
       mode: replicated
       replicas: 1

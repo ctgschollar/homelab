@@ -54,7 +54,3 @@ services:
         # Prometheus Blackbox monitoring
         prometheus.blackbox: "true"
         metrics.probe_url: "https://jellyfin.schollar.dev"
-
-networks:
-  traefik-net:
-    external: true

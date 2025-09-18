@@ -31,7 +31,11 @@ services:
         target: /var/lib/registry
     deploy:
       mode: replicated
-      replicas: 1 
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
       placement:
         constraints:
           - node.labels.registry == true

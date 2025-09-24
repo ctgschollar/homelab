@@ -18,6 +18,11 @@ services:
       - "--certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare"
       - "--certificatesresolvers.cf.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
 
+      # Trust my external traefik proxy
+      - "--entrypoints.web.proxyprotocol.trustedips=192.168.3.91/32"
+      - "--entrypoints.websecure.proxyprotocol.trustedips=192.168.3.91/32"
+
+
       # Prometheus metrics
       - "--metrics.prometheus=true"
       - "--metrics.prometheus.addEntryPointsLabels=true"

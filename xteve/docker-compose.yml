@@ -1,0 +1,54 @@
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  xteve_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "5G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+services:
+  xteve:
+    image: dnsforge/xteve:latest
+    networks:
+      - traefik-net
+    volumes:
+      # Main xTeVe config directory
+      - xteve_config:/root/.xteve
+      # Optional: temp/cache dir on shared storage if you want
+      - type: bind
+        source: /mnt/shared/xteve/tmp
+        target: /tmp/xteve
+    environment:
+      TZ: Africa/Johannesburg
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+          # xTeVe doesn’t need GPU, so no gpu==true constraint
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik-net
+
+      # HTTPS router for xTeVe UI
+      traefik.http.routers.xteve.rule: Host(`xteve.schollar.dev`)
+      traefik.http.routers.xteve.entrypoints: websecure
+      traefik.http.routers.xteve.tls.certresolver: cf
+
+      # xTeVe web UI listens on 34400 inside the container
+      traefik.http.services.xteve.loadbalancer.server.port: "34400"
+
+      # Prometheus Blackbox monitoring
+      prometheus.blackbox: "true"
+      metrics.probe_url: "https://xteve.schollar.dev"
+

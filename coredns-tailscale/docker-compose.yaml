@@ -36,4 +36,5 @@ configs:
 
 networks:
   dns-net:
+    name: coredns_dns-net
     external: true

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  coredns-tailscale:
+    image: coredns/coredns:latest
+    command: -conf /Corefile
+    ports:
+      - target: 53
+        published: 5353
+        protocol: udp
+        mode: host
+      - target: 53
+        published: 5353
+        protocol: tcp
+        mode: host
+    configs:
+      - source: coredns-tailscale-corefile
+        target: /Corefile
+    networks:
+      - dns-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == dks01
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+
+configs:
+  coredns-tailscale-corefile:
+    name: coredns-tailscale-corefile
+    file: ./Corefile
+
+networks:
+  dns-net:
+    external: true

@@ -1,0 +1,21 @@
+schollar.dev:53 {
+    template IN A schollar.dev {
+        match "^.*\.schollar\.dev\.$"
+        answer "{{ .Name }} 60 IN A 100.83.70.76"
+        fallthrough
+    }
+    template IN A schollar.dev {
+        match "^schollar\.dev\.$"
+        answer "{{ .Name }} 60 IN A 100.83.70.76"
+        fallthrough
+    }
+    log
+    errors
+}
+
+.:53 {
+    forward . 1.1.1.1 9.9.9.9
+    log
+    errors
+    cache 30
+}

@@ -21,7 +21,7 @@ services:
       - traefik-net
     volumes:
       # Main xTeVe config directory
-      - xteve_config:/home/xteve
+      - xteve_config:/home/xteve/conf
       # Optional: temp/cache dir on shared storage if you want
       - type: bind
         source: /mnt/shared/xteve/tmp

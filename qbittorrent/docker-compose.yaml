@@ -3,6 +3,7 @@ version: "3.8"
 services:
   qbittorrent:
     image: ghcr.io/hotio/qbittorrent:latest
+    command: ["/app/qbittorrent-nox-lib1", "--profile=/config", "--webui-port=8080", "--confirm-legal-notice"]
     user: "0:0"
     environment:
       PID: "0"

@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  excalidraw:
+    image: excalidraw/excalidraw:latest
+    networks: [traefik-net]
+
+    volumes:
+      - excalidraw-data:/app/data
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        # ===========================
+        # Traefik (HTTPS router)
+        # ===========================
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.excalidraw.rule: "Host(`excalidraw.schollar.dev`)"
+        traefik.http.routers.excalidraw.entrypoints: "websecure"
+        traefik.http.routers.excalidraw.tls.certresolver: cf
+        traefik.http.services.excalidraw.loadbalancer.server.port: "80"
+
+        # ===========================
+        # Prometheus Blackbox labels
+        # ===========================
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://excalidraw.schollar.dev"
+
+volumes:
+  excalidraw-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 500MB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+networks:
+  traefik-net:
+    external: true

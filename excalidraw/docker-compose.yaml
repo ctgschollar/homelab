@@ -4,6 +4,14 @@ services:
   excalidraw:
     image: excalidraw/excalidraw:latest
     networks: [traefik-net]
+    environment:
+      # Collaboration room WebSocket server
+      VITE_APP_WS_SERVER_URL: "https://excalidraw-room.schollar.dev"
+      # Storage backend for persistent drawings
+      VITE_APP_HTTP_STORAGE_BACKEND_URL: "https://excalidraw-storage.schollar.dev/api/v2"
+      # Library URLs (optional, using public Excalidraw libraries)
+      VITE_APP_LIBRARY_URL: "https://libraries.excalidraw.com"
+      VITE_APP_LIBRARY_BACKEND: "https://us-central1-excalidraw-room-persistence.cloudfunctions.net/libraries"
 
     volumes:
       - excalidraw-data:/app/data
@@ -31,11 +39,91 @@ services:
         prometheus.blackbox: "true"
         metrics.probe_url: "https://excalidraw.schollar.dev"
 
+  excalidraw-room:
+    image: excalidraw/excalidraw-room:latest
+    networks: [traefik-net]
+    environment:
+      PORT: "80"
+      NODE_ENV: "production"
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.excalidraw-room.rule: "Host(`excalidraw-room.schollar.dev`)"
+        traefik.http.routers.excalidraw-room.entrypoints: "websecure"
+        traefik.http.routers.excalidraw-room.tls.certresolver: cf
+        traefik.http.services.excalidraw-room.loadbalancer.server.port: "80"
+
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://excalidraw-room.schollar.dev"
+
+  excalidraw-storage-backend:
+    image: kiliandeca/excalidraw-storage-backend:latest
+    networks: [traefik-net]
+    environment:
+      STORAGE_URI: "redis://redis:6379"
+
+    volumes:
+      - excalidraw-storage:/app/data
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.excalidraw-storage.rule: "Host(`excalidraw-storage.schollar.dev`)"
+        traefik.http.routers.excalidraw-storage.entrypoints: "websecure"
+        traefik.http.routers.excalidraw-storage.tls.certresolver: cf
+        traefik.http.services.excalidraw-storage.loadbalancer.server.port: "8080"
+
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://excalidraw-storage.schollar.dev"
+
+  redis:
+    image: redis:alpine
+    networks: [traefik-net]
+
+    volumes:
+      - redis-data:/data
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+
 volumes:
   excalidraw-data:
     driver: linbit/linstor-docker-volume
     driver_opts:
       size: 500MB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+  excalidraw-storage:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 10GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+  redis-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 2GB
       fs: "xfs"
       replicas: "2"
       storagepool: "pool_ssd"

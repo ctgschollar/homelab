@@ -2,11 +2,10 @@ version: "3.8"
 
 services:
   sonarr:
-    image: ghcr.io/hotio/sonarr:release
-    user: "0:0"
+    image: lscr.io/linuxserver/sonarr:latest
     environment:
-      PID: "0"
-      GID: "0"
+      PUID: "0"
+      PGID: "0"
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:

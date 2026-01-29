@@ -11,6 +11,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
+        VITE_APP_PUBLIC_URL: "https://excalidraw.schollar.dev"
         # Collaboration room WebSocket server
         VITE_APP_WS_SERVER_URL: "https://excalidraw-room.schollar.dev"
         # Storage backend for persistent drawings

@@ -3,10 +3,9 @@ version: "3.8"
 services:
   readarr:
     image: linuxserver/readarr:0.4.19-nightly
-    user: "0:0"
     environment:
-      PID: "0"
-      GID: "0"
+      PUID: "0"
+      PGID: "0"
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:

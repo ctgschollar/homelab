@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   readarr:
-    image: lscr.io/linuxserver/readarr:develop
+    image: lscr.io/linuxserver/readarr:nightly
     environment:
       PUID: "0"
       PGID: "0"

@@ -2,13 +2,12 @@ version: "3.8"
 
 services:
   qbittorrent:
-    image: ghcr.io/hotio/qbittorrent:latest
-    command: ["/app/qbittorrent-nox-lib1", "--profile=/config", "--webui-port=8080", "--confirm-legal-notice"]
-    user: "0:0"
+    image: lscr.io/linuxserver/qbittorrent:latest
     environment:
-      PID: "0"
-      GID: "0"
+      PUID: "0"
+      PGID: "0"
       UMASK: "002"
+      WEBUI_PORT: "8080"
       # TZ: Africa/Johannesburg
     volumes:
       - qbittorrent_config:/config

@@ -2,10 +2,11 @@ version: "3.8"
 
 services:
   readarr:
-    image: lscr.io/linuxserver/readarr:nightly
+    image: ghcr.io/hotio/readarr:latest
+    user: "0:0"
     environment:
-      PUID: "0"
-      PGID: "0"
+      PID: "0"
+      GID: "0"
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:

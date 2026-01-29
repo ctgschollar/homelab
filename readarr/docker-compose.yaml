@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   readarr:
-    image: ghcr.io/hotio/readarr:latest
+    image: linuxserver/readarr:0.4.19-nightly
     user: "0:0"
     environment:
       PID: "0"

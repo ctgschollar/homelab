@@ -3,6 +3,10 @@ version: "3.8"
 services:
   excalidraw:
     image: registry.schollar.dev/excalidraw:latest
+    environment:
+      PUBLIC_URL: "https://excalidraw.schollar.dev"
+      REACT_APP_WS_SERVER_URL: "https://excalidraw-room.schollar.dev"
+      REACT_APP_HTTP_STORAGE_BACKEND_URL: "https://excalidraw-storage.schollar.dev/api/v2"
     build:
       context: .
       dockerfile: Dockerfile
@@ -45,6 +49,7 @@ services:
     environment:
       PORT: "80"
       NODE_ENV: "production"
+      PUBLIC_URL: "https://excalidraw-storage.schollar.dev"
 
     deploy:
       replicas: 1
@@ -68,6 +73,7 @@ services:
     networks: [traefik-net]
     environment:
       STORAGE_URI: "redis://redis:6379"
+      PUBLIC_URL: "https://excalidraw-storage.schollar.dev"
 
     volumes:
       - excalidraw-storage:/app/data

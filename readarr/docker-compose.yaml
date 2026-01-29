@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    environment:
+      PUID: "0"
+      PGID: "0"
+      UMASK: "002"
+      # TZ: Africa/Johannesburg
+    volumes:
+      - readarr_config:/config
+      - type: bind
+        source: /mnt/shared/jellyfin/media/books        # ← your books library on the host
+        target: /data/books
+      - type: bind
+        source: /mnt/shared/torrent/complete             # ← completed downloads
+        target: /data/torrent/complete
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.readarr.rule: Host(`readarr.schollar.dev`)
+        traefik.http.routers.readarr.entrypoints: websecure
+        traefik.http.routers.readarr.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.readarr.loadbalancer.server.port: "8787"
+
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://readarr.schollar.dev"
+
+volumes:
+  readarr_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 1GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+
+networks:
+  traefik-net:
+    external: true

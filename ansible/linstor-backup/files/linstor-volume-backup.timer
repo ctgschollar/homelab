@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily backup of linstor Docker volumes
+Requires=linstor-volume-backup.service
+
+[Timer]
+# Run daily at 2 AM
+OnCalendar=daily
+OnCalendar=*-*-* 02:00:00
+
+# Run 15 minutes after boot if we missed the scheduled time
+Persistent=true
+
+# Add randomization to avoid all nodes running at exact same time
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

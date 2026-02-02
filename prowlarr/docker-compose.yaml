@@ -4,8 +4,8 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     environment:
-      PUID: "0"
-      PGID: "0"
+      PUID: "1000"
+      PGID: "1000"
       UMASK: "002"
       # TZ: Africa/Johannesburg
     volumes:

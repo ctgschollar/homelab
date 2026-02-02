@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""
+Volume Backups Management Tool
+Manage and restore Docker volume backups created by linstor-volume-backup service
+"""
+
+import argparse
+import os
+import sys
+import subprocess
+import json
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict, Optional
+
+
+BACKUP_DIR = Path("/var/lib/docker-volume-backups")
+COLORS = {
+    'RESET': '\033[0m',
+    'BOLD': '\033[1m',
+    'RED': '\033[91m',
+    'GREEN': '\033[92m',
+    'YELLOW': '\033[93m',
+    'BLUE': '\033[94m',
+    'CYAN': '\033[96m',
+}
+
+
+def colorize(text: str, color: str) -> str:
+    """Add color to text if stdout is a tty"""
+    if sys.stdout.isatty():
+        return f"{COLORS.get(color, '')}{text}{COLORS['RESET']}"
+    return text
+
+
+def run_command(cmd: List[str], capture_output=True) -> subprocess.CompletedProcess:
+    """Run a shell command and return the result"""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=capture_output,
+            text=True,
+            check=True
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        print(colorize(f"Error running command: {' '.join(cmd)}", 'RED'))
+        print(colorize(f"Error: {e.stderr}", 'RED'))
+        sys.exit(1)
+
+
+def get_backed_up_volumes() -> List[str]:
+    """Get list of all volumes that have backups"""
+    if not BACKUP_DIR.exists():
+        return []
+
+    volumes = []
+    for item in BACKUP_DIR.iterdir():
+        if item.is_dir():
+            # Check if there are any .tar.gz files in this directory
+            backups = list(item.glob("*.tar.gz"))
+            # Filter out symlinks (like latest.tar.gz)
+            backups = [b for b in backups if not b.is_symlink()]
+            if backups:
+                volumes.append(item.name)
+
+    return sorted(volumes)
+
+
+def get_volume_backups(volume_name: str) -> List[Dict[str, any]]:
+    """Get list of all backups for a specific volume"""
+    volume_dir = BACKUP_DIR / volume_name
+    if not volume_dir.exists():
+        return []
+
+    backups = []
+    for backup_file in volume_dir.glob(f"{volume_name}_*.tar.gz"):
+        if backup_file.is_symlink():
+            continue
+
+        stat = backup_file.stat()
+        backups.append({
+            'path': backup_file,
+            'name': backup_file.name,
+            'size': stat.st_size,
+            'mtime': stat.st_mtime,
+            'mtime_str': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+        })
+
+    # Sort by modification time, newest first
+    backups.sort(key=lambda x: x['mtime'], reverse=True)
+    return backups
+
+
+def format_size(bytes: int) -> str:
+    """Format bytes to human readable size"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes < 1024.0:
+            return f"{bytes:.1f} {unit}"
+        bytes /= 1024.0
+    return f"{bytes:.1f} PB"
+
+
+def check_volume_exists(volume_name: str) -> bool:
+    """Check if a Docker volume exists"""
+    try:
+        result = subprocess.run(
+            ['docker', 'volume', 'inspect', volume_name],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def get_containers_using_volume(volume_name: str) -> List[str]:
+    """Get list of containers currently using a volume"""
+    try:
+        # Get all containers (including stopped ones)
+        result = subprocess.run(
+            ['docker', 'ps', '-a', '--format', '{{.Names}}'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        containers = result.stdout.strip().split('\n')
+        using_volume = []
+
+        for container in containers:
+            if not container:
+                continue
+
+            # Inspect container to see if it uses the volume
+            inspect_result = subprocess.run(
+                ['docker', 'inspect', container],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            inspect_data = json.loads(inspect_result.stdout)
+            if not inspect_data:
+                continue
+
+            mounts = inspect_data[0].get('Mounts', [])
+            for mount in mounts:
+                if mount.get('Name') == volume_name or mount.get('Source') == volume_name:
+                    using_volume.append(container)
+                    break
+
+        return using_volume
+    except Exception as e:
+        print(colorize(f"Warning: Could not check container usage: {e}", 'YELLOW'))
+        return []
+
+
+def list_volumes():
+    """List all backed up volumes"""
+    volumes = get_backed_up_volumes()
+
+    if not volumes:
+        print(colorize("No volume backups found in " + str(BACKUP_DIR), 'YELLOW'))
+        return
+
+    print(colorize(f"\n{'Backed Up Volumes':<30} {'Backups':<10} {'Latest Backup':<20}", 'BOLD'))
+    print(colorize("=" * 70, 'BOLD'))
+
+    for volume in volumes:
+        backups = get_volume_backups(volume)
+        backup_count = len(backups)
+        latest = backups[0]['mtime_str'] if backups else 'N/A'
+
+        print(f"{colorize(volume, 'CYAN'):<40} {backup_count:<10} {latest:<20}")
+
+    print()
+
+
+def list_volume_backups(volume_name: str):
+    """List all backups for a specific volume"""
+    backups = get_volume_backups(volume_name)
+
+    if not backups:
+        print(colorize(f"No backups found for volume: {volume_name}", 'YELLOW'))
+        return
+
+    print(colorize(f"\nBackups for volume: {volume_name}", 'BOLD'))
+    print(colorize("=" * 80, 'BOLD'))
+    print(f"{'#':<4} {'Timestamp':<20} {'Size':<12} {'File':<40}")
+    print(colorize("-" * 80, 'BOLD'))
+
+    for idx, backup in enumerate(backups, 1):
+        size_str = format_size(backup['size'])
+        print(f"{idx:<4} {backup['mtime_str']:<20} {size_str:<12} {backup['name']:<40}")
+
+    print()
+
+
+def restore_volume(volume_name: str):
+    """Interactive restore of a volume from backup"""
+    # Check if volume exists
+    if not check_volume_exists(volume_name):
+        print(colorize(f"Error: Volume '{volume_name}' does not exist", 'RED'))
+        print(colorize(f"Create it first or check the volume name", 'YELLOW'))
+        sys.exit(1)
+
+    # Get backups
+    backups = get_volume_backups(volume_name)
+
+    if not backups:
+        print(colorize(f"No backups found for volume: {volume_name}", 'YELLOW'))
+        sys.exit(1)
+
+    # Display backups
+    print(colorize(f"\n{'='*80}", 'BOLD'))
+    print(colorize(f"  Volume Restore: {volume_name}", 'BOLD'))
+    print(colorize(f"{'='*80}", 'BOLD'))
+    print()
+    print(colorize("Available backups:", 'CYAN'))
+    print()
+    print(f"{'#':<6} {'Timestamp':<22} {'Size':<12} {'Age':<15}")
+    print(colorize("-" * 80, 'BOLD'))
+
+    now = datetime.now().timestamp()
+    for idx, backup in enumerate(backups, 1):
+        age_seconds = now - backup['mtime']
+        age_str = format_age(age_seconds)
+        size_str = format_size(backup['size'])
+
+        timestamp_color = 'GREEN' if idx == 1 else 'RESET'
+        print(f"{colorize(str(idx), 'BOLD'):<12} {colorize(backup['mtime_str'], timestamp_color):<28} {size_str:<12} {age_str:<15}")
+
+    print()
+
+    # Check for containers using the volume
+    containers = get_containers_using_volume(volume_name)
+
+    if containers:
+        print(colorize("⚠ WARNING: The following containers are using this volume:", 'RED'))
+        for container in containers:
+            # Check if container is running
+            result = subprocess.run(
+                ['docker', 'inspect', '-f', '{{.State.Status}}', container],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            status = result.stdout.strip() if result.returncode == 0 else 'unknown'
+            status_color = 'GREEN' if status == 'running' else 'YELLOW'
+            print(f"  • {container} ({colorize(status, status_color)})")
+        print()
+        print(colorize("You should stop these containers before restoring!", 'YELLOW'))
+        print()
+
+    # Get user selection
+    while True:
+        try:
+            selection = input(colorize("Select backup number to restore (or 'q' to quit): ", 'BOLD'))
+
+            if selection.lower() == 'q':
+                print("Restore cancelled.")
+                sys.exit(0)
+
+            backup_idx = int(selection)
+            if 1 <= backup_idx <= len(backups):
+                break
+            else:
+                print(colorize(f"Please enter a number between 1 and {len(backups)}", 'RED'))
+        except ValueError:
+            print(colorize("Please enter a valid number or 'q' to quit", 'RED'))
+
+    selected_backup = backups[backup_idx - 1]
+
+    # Final confirmation
+    print()
+    print(colorize("="*80, 'BOLD'))
+    print(colorize("⚠  FINAL CONFIRMATION", 'RED'))
+    print(colorize("="*80, 'BOLD'))
+    print()
+    print(f"  Volume:  {colorize(volume_name, 'CYAN')}")
+    print(f"  Backup:  {colorize(selected_backup['name'], 'YELLOW')}")
+    print(f"  Date:    {selected_backup['mtime_str']}")
+    print(f"  Size:    {format_size(selected_backup['size'])}")
+    print()
+    print(colorize("  THIS WILL PERMANENTLY DELETE ALL CURRENT DATA IN THE VOLUME!", 'RED'))
+    print()
+
+    confirm = input(colorize("Type 'yes' to proceed with restore: ", 'BOLD'))
+
+    if confirm.lower() != 'yes':
+        print("Restore cancelled.")
+        sys.exit(0)
+
+    # Perform restore
+    print()
+    print(colorize("Starting restore...", 'CYAN'))
+
+    try:
+        # First, clear the volume
+        print(colorize("  [1/3] Clearing volume...", 'YELLOW'))
+        clear_cmd = [
+            'docker', 'run', '--rm',
+            '-v', f'{volume_name}:/target',
+            'alpine:latest',
+            'sh', '-c', 'rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null || true'
+        ]
+        run_command(clear_cmd, capture_output=False)
+
+        # Extract backup to volume
+        print(colorize(f"  [2/3] Extracting backup...", 'YELLOW'))
+        restore_cmd = [
+            'docker', 'run', '--rm',
+            '-v', f'{volume_name}:/target',
+            '-v', f'{selected_backup["path"]}:/backup.tar.gz:ro',
+            'alpine:latest',
+            'sh', '-c', 'cd /target && tar -xzf /backup.tar.gz'
+        ]
+        run_command(restore_cmd, capture_output=False)
+
+        # Verify
+        print(colorize(f"  [3/3] Verifying restore...", 'YELLOW'))
+        verify_cmd = [
+            'docker', 'run', '--rm',
+            '-v', f'{volume_name}:/target:ro',
+            'alpine:latest',
+            'sh', '-c', 'ls -la /target | head -20'
+        ]
+        run_command(verify_cmd, capture_output=False)
+
+        print()
+        print(colorize("✓ Restore completed successfully!", 'GREEN'))
+        print()
+
+        if containers:
+            print(colorize("Don't forget to restart the containers:", 'CYAN'))
+            for container in containers:
+                print(f"  docker start {container}")
+            print()
+
+    except Exception as e:
+        print()
+        print(colorize(f"✗ Restore failed: {e}", 'RED'))
+        sys.exit(1)
+
+
+def format_age(seconds: float) -> str:
+    """Format age in seconds to human readable string"""
+    if seconds < 60:
+        return "just now"
+    elif seconds < 3600:
+        minutes = int(seconds / 60)
+        return f"{minutes}m ago"
+    elif seconds < 86400:
+        hours = int(seconds / 3600)
+        return f"{hours}h ago"
+    else:
+        days = int(seconds / 86400)
+        return f"{days}d ago"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Manage Docker volume backups',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # List all backed up volumes
+  volume-backups list
+
+  # List all backups for a specific volume
+  volume-backups sonarr_config list
+
+  # Restore a volume from backup (interactive)
+  volume-backups restore sonarr_config
+        """
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+
+    # List command
+    list_parser = subparsers.add_parser('list', help='List all backed up volumes')
+
+    # Volume-specific commands
+    parser.add_argument('volume', nargs='?', help='Volume name')
+    parser.add_argument('action', nargs='?', choices=['list', 'restore'], help='Action to perform')
+
+    args = parser.parse_args()
+
+    # Handle different command patterns
+    if args.command == 'list' or (args.volume is None and args.action is None):
+        list_volumes()
+    elif args.volume and args.action == 'list':
+        list_volume_backups(args.volume)
+    elif args.volume and args.action == 'restore':
+        restore_volume(args.volume)
+    elif args.volume and args.action is None:
+        # Assume "volume-backups <volume>" means list that volume's backups
+        list_volume_backups(args.volume)
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

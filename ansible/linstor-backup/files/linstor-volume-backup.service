@@ -1,0 +1,15 @@
+[Unit]
+Description=Backup linstor Docker volumes
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-linstor-volumes.sh
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes

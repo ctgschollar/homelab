@@ -1,0 +1,32 @@
+# Ansible SSH Keys
+ansible/ansible_ssh_key
+ansible/ansible_ssh_key.pub
+
+# Sensitive configuration files
+*.pem
+*.key
+!*.key.example
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo

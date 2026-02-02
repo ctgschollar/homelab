@@ -1,0 +1,46 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        VOLUME BACKUPS QUICK REFERENCE                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+COMMANDS:
+  volume-backups list                    List all backed up volumes
+  volume-backups <volume> list           List all backups for a volume
+  volume-backups restore <volume>        Restore a volume (interactive)
+
+EXAMPLES:
+  # See what volumes have backups
+  volume-backups list
+
+  # Check sonarr backups
+  volume-backups sonarr_config list
+
+  # Restore sonarr from backup
+  volume-backups restore sonarr_config
+
+BACKUP LOCATION:
+  /var/lib/docker-volume-backups/<volume-name>/
+
+BACKUP SCHEDULE:
+  Daily at 2:00 AM via systemd timer
+
+USEFUL COMMANDS:
+  # Check backup timer status
+  systemctl status linstor-volume-backup.timer
+
+  # View backup logs
+  tail -f /var/log/linstor-volume-backup.log
+
+  # Manually trigger a backup now
+  systemctl start linstor-volume-backup.service
+
+  # Check next scheduled backup
+  systemctl list-timers linstor-volume-backup.timer
+
+SAFETY NOTES:
+  - Restore will DELETE all current data in the volume
+  - Stop containers before restoring to avoid corruption
+  - The tool will warn if containers are using the volume
+  - You must type 'yes' to confirm restore
+
+MORE INFO:
+  volume-backups --help

@@ -1,0 +1,98 @@
+---
+- name: Deploy linstor volume backup system
+  hosts: docker_swarm_nodes
+  become: true
+
+  vars:
+    backup_dir: /var/lib/docker-volume-backups
+    retention_days: 7
+    backup_time: "02:00:00"
+
+  tasks:
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Copy backup script
+      copy:
+        src: files/backup-linstor-volumes.sh
+        dest: /usr/local/bin/backup-linstor-volumes.sh
+        mode: '0755'
+        owner: root
+        group: root
+      notify: restart backup timer
+
+    - name: Copy volume-backups management tool
+      copy:
+        src: files/volume-backups
+        dest: /usr/local/bin/volume-backups
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Copy volume-backups quick reference
+      copy:
+        src: files/volume-backups-help.txt
+        dest: /root/volume-backups-help.txt
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Copy systemd service file
+      copy:
+        src: files/linstor-volume-backup.service
+        dest: /etc/systemd/system/linstor-volume-backup.service
+        mode: '0644'
+        owner: root
+        group: root
+      notify:
+        - reload systemd
+        - restart backup timer
+
+    - name: Copy systemd timer file
+      copy:
+        src: files/linstor-volume-backup.timer
+        dest: /etc/systemd/system/linstor-volume-backup.timer
+        mode: '0644'
+        owner: root
+        group: root
+      notify:
+        - reload systemd
+        - restart backup timer
+
+    - name: Enable and start backup timer
+      systemd:
+        name: linstor-volume-backup.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Check timer status
+      command: systemctl status linstor-volume-backup.timer
+      register: timer_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display timer information
+      command: systemctl list-timers linstor-volume-backup.timer
+      register: timer_info
+      changed_when: false
+
+    - name: Show timer details
+      debug:
+        msg: "{{ timer_info.stdout_lines }}"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: restart backup timer
+      systemd:
+        name: linstor-volume-backup.timer
+        state: restarted
+        enabled: true

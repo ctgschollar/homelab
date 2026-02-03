@@ -14,7 +14,7 @@ services:
       POSTGRES_PORT: "5432"
       POSTGRES_DATABASE: "joplin"
       POSTGRES_USER: "joplin"
-      POSTGRES_PASSWORD: "changeme_joplin_db_password"
+      POSTGRES_PASSWORD: "!vxiZikn4N9utbHz"
 
       # --- Mailer Configuration (Optional) ---
       # MAILER_ENABLED: "1"

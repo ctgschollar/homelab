@@ -1,0 +1,11 @@
+# Docker service discovery configuration
+# Services will be automatically discovered via Docker labels
+# This file can remain empty - services are configured via labels on each container/service
+
+# Example label structure for services:
+# homepage.group: Group Name
+# homepage.name: Service Name
+# homepage.icon: icon-name
+# homepage.href: https://service.schollar.dev
+# homepage.description: Service description
+# homepage.weight: 10 (optional, lower = higher priority)

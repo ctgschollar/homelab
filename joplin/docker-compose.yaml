@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  joplin:
+    image: joplin/server:latest
+    environment:
+      # --- Application Configuration ---
+      APP_BASE_URL: "https://joplin.schollar.dev"
+      APP_PORT: "22300"
+
+      # --- Database Configuration ---
+      DB_CLIENT: "pg"
+      POSTGRES_HOST: "pg.schollar.dev"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: "joplin"
+      POSTGRES_USER: "joplin"
+      POSTGRES_PASSWORD: "changeme_joplin_db_password"
+
+      # --- Mailer Configuration (Optional) ---
+      # MAILER_ENABLED: "1"
+      # MAILER_HOST: "smtp.example.com"
+      # MAILER_PORT: "587"
+      # MAILER_SECURITY: "tls"
+      # MAILER_AUTH_USER: "user@example.com"
+      # MAILER_AUTH_PASSWORD: "password"
+      # MAILER_NOREPLY_NAME: "Joplin Server"
+      # MAILER_NOREPLY_EMAIL: "noreply@schollar.dev"
+
+    networks: [traefik-net]
+
+    volumes:
+      - joplin-data:/home/joplin/packages/server/data
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        # ===========================
+        # Traefik (HTTPS router)
+        # ===========================
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.joplin.rule: "Host(`joplin.schollar.dev`)"
+        traefik.http.routers.joplin.entrypoints: "websecure"
+        traefik.http.routers.joplin.tls.certresolver: cf
+        traefik.http.services.joplin.loadbalancer.server.port: "22300"
+
+        # ===========================
+        # Prometheus Blackbox labels
+        # ===========================
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://joplin.schollar.dev"
+
+        # ===========================
+        # Homepage integration
+        # ===========================
+        homepage.group: "Productivity"
+        homepage.name: "Joplin"
+        homepage.icon: "joplin.png"
+        homepage.href: "https://joplin.schollar.dev"
+        homepage.description: "Note taking and sync"
+        homepage.weight: "10"
+
+volumes:
+  joplin-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "20G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+networks:
+  traefik-net:
+    external: true

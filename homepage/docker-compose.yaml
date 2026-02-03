@@ -7,6 +7,9 @@ configs:
   homepage_services:
     name: homepage_services
     file: ./services.yaml
+  homepage_docker:
+    name: homepage_docker
+    file: ./docker.yaml
 
 networks:
   traefik-net:
@@ -25,6 +28,12 @@ services:
       - source: homepage_services
         target: /app/config/services.yaml
         mode: 0444
+      - source: homepage_docker
+        target: /app/config/docker.yaml
+        mode: 0444
+    volumes:
+      # Mount Docker socket for service discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [traefik-net]
     deploy:
       mode: replicated
@@ -33,6 +42,10 @@ services:
         condition: on-failure
         delay: 5s
         max_attempts: 0
+      placement:
+        constraints:
+          # Must run on manager node to access Docker socket for service discovery
+          - node.role == manager
       labels:
         traefik.enable: "true"
         traefik.docker.network: traefik-net

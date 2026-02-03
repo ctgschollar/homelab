@@ -1,4 +1,18 @@
 title: Services
 theme: dark
 layout:
-  - Services
+  Media:
+    style: row
+    columns: 3
+  HomeLab:
+    style: row
+    columns: 3
+  Docker Services:
+    style: row
+    columns: 4
+
+providers:
+  docker:
+    socket: /var/run/docker.sock
+    # For Docker Swarm
+    swarmModeEndpoint: true

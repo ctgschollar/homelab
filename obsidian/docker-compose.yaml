@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  couchdb:
+    image: couchdb:latest
+    environment:
+      # --- CouchDB Admin Credentials ---
+      COUCHDB_USER: "admin"
+      COUCHDB_PASSWORD: "changeme_couchdb_password"
+
+    networks: [traefik-net]
+
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+      - couchdb-config:/opt/couchdb/etc/local.d
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        # ===========================
+        # Traefik (HTTPS router)
+        # ===========================
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.obsidian-sync.rule: "Host(`obsidian.schollar.dev`)"
+        traefik.http.routers.obsidian-sync.entrypoints: "websecure"
+        traefik.http.routers.obsidian-sync.tls.certresolver: cf
+        traefik.http.services.obsidian-sync.loadbalancer.server.port: "5984"
+
+        # ===========================
+        # Prometheus Blackbox labels
+        # ===========================
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://obsidian.schollar.dev"
+
+        # ===========================
+        # Homepage integration
+        # ===========================
+        homepage.group: "Productivity"
+        homepage.name: "Obsidian Sync"
+        homepage.icon: "obsidian.png"
+        homepage.href: "https://obsidian.schollar.dev/_utils"
+        homepage.description: "CouchDB for Obsidian LiveSync"
+        homepage.weight: "20"
+
+volumes:
+  couchdb-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "50G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+  couchdb-config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "1G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+networks:
+  traefik-net:
+    external: true

@@ -35,6 +35,7 @@ services:
         # HTTPS router
         traefik.http.routers.lazylibarian.rule: Host(`lazylibarian.schollar.dev`)
         traefik.http.routers.lazylibarian.entrypoints: websecure
+        traefik.http.routers.lazylibarian.tls: "true"
         traefik.http.routers.lazylibarian.tls.certresolver: cf
 
         # Upstream service port

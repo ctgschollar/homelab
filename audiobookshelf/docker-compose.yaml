@@ -32,6 +32,7 @@ services:
         # HTTPS router
         traefik.http.routers.audiobookshelf.rule: Host(`audiobooks.schollar.dev`)
         traefik.http.routers.audiobookshelf.entrypoints: websecure
+        traefik.http.routers.audiobookshelf.tls: "true"
         traefik.http.routers.audiobookshelf.tls.certresolver: cf
 
         # Upstream service port

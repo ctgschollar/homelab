@@ -1,0 +1,63 @@
+version: "3.8"
+
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      # TZ: Africa/Johannesburg
+    volumes:
+      - audiobookshelf_config:/config
+      - audiobookshelf_metadata:/metadata
+      - type: bind
+        source: /mnt/shared/jellyfin/media/books         # ← your books library (ebooks + audiobooks)
+        target: /books
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.audiobookshelf.rule: Host(`audiobooks.schollar.dev`)
+        traefik.http.routers.audiobookshelf.entrypoints: websecure
+        traefik.http.routers.audiobookshelf.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.audiobookshelf.loadbalancer.server.port: "80"
+
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://audiobooks.schollar.dev"
+
+volumes:
+  audiobookshelf_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 1GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+  audiobookshelf_metadata:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 5GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+
+networks:
+  traefik-net:
+    external: true

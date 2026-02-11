@@ -1,21 +1,19 @@
 version: "3.8"
 
 services:
-  readarr:
-    image: lscr.io/linuxserver/readarr:develop
+  calibre-web:
+    image: lscr.io/linuxserver/calibre-web:latest
     environment:
       PUID: "1000"
       PGID: "1000"
       UMASK: "002"
       # TZ: Africa/Johannesburg
+      DOCKER_MODS: linuxserver/mods:universal-calibre
     volumes:
-      - readarr_config:/config
+      - calibre_web_config:/config
       - type: bind
-        source: /mnt/shared/jellyfin/media/books        # ← your books library on the host
-        target: /data/books
-      - type: bind
-        source: /mnt/shared/torrent/complete             # ← completed downloads
-        target: /data/torrent/complete
+        source: /mnt/shared/jellyfin/media/books         # ← your books library (ebooks + audiobooks)
+        target: /books
     networks:
       - traefik-net
     deploy:
@@ -33,19 +31,19 @@ services:
         traefik.docker.network: traefik-net
 
         # HTTPS router
-        traefik.http.routers.readarr.rule: Host(`readarr.schollar.dev`)
-        traefik.http.routers.readarr.entrypoints: websecure
-        traefik.http.routers.readarr.tls.certresolver: cf
+        traefik.http.routers.calibre-web.rule: Host(`books.schollar.dev`)
+        traefik.http.routers.calibre-web.entrypoints: websecure
+        traefik.http.routers.calibre-web.tls.certresolver: cf
 
         # Upstream service port
-        traefik.http.services.readarr.loadbalancer.server.port: "8787"
+        traefik.http.services.calibre-web.loadbalancer.server.port: "8083"
 
         # Prometheus Blackbox monitoring
         prometheus.blackbox: "true"
-        metrics.probe_url: "https://readarr.schollar.dev"
+        metrics.probe_url: "https://books.schollar.dev"
 
 volumes:
-  readarr_config:
+  calibre_web_config:
     driver: linbit/linstor-docker-volume
     driver_opts:
       size: 1GB

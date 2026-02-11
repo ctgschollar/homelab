@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  lazylibarian:
+    image: lscr.io/linuxserver/lazylibrarian:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "002"
+      # TZ: Africa/Johannesburg
+    volumes:
+      - lazylibarian_config:/config
+      - type: bind
+        source: /mnt/shared/jellyfin/media/books         # ← your books library (ebooks + audiobooks)
+        target: /data/books
+      - type: bind
+        source: /mnt/shared/torrent/complete             # ← completed downloads
+        target: /data/torrent/complete
+    networks:
+      - traefik-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - node.labels.media == true
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+
+        # HTTPS router
+        traefik.http.routers.lazylibarian.rule: Host(`lazylibarian.schollar.dev`)
+        traefik.http.routers.lazylibarian.entrypoints: websecure
+        traefik.http.routers.lazylibarian.tls.certresolver: cf
+
+        # Upstream service port
+        traefik.http.services.lazylibarian.loadbalancer.server.port: "5299"
+
+        # Prometheus Blackbox monitoring
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://lazylibarian.schollar.dev"
+
+volumes:
+  lazylibarian_config:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: 1GB
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+
+networks:
+  traefik-net:
+    external: true

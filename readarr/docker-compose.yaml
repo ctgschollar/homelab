@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   readarr:
-    image: linuxserver/readarr:0.4.19-nightly
+    image: linuxserver/readarr:develop
     environment:
       PUID: "1000"
       PGID: "1000"

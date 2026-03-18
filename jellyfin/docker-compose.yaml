@@ -6,7 +6,7 @@ volumes:
   jellyfin_config:
     driver: linbit/linstor-docker-volume
     driver_opts:
-      size: "10G"
+      size: "50G"
       fs: "xfs"
       replicas: "2"
       storagepool: "pool_ssd"

@@ -370,7 +370,7 @@ Examples:
   volume-backups list
 
   # List all backups for a specific volume
-  volume-backups sonarr_config list
+  volume-backups list sonarr_config
 
   # Restore a volume from backup (interactive)
   volume-backups restore sonarr_config
@@ -380,24 +380,22 @@ Examples:
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
 
     # List command
-    list_parser = subparsers.add_parser('list', help='List all backed up volumes')
+    list_parser = subparsers.add_parser('list', help='List all backed up volumes, or backups for a specific volume')
+    list_parser.add_argument('volume', nargs='?', help='Volume name (optional)')
 
-    # Volume-specific commands
-    parser.add_argument('volume', nargs='?', help='Volume name')
-    parser.add_argument('action', nargs='?', choices=['list', 'restore'], help='Action to perform')
+    # Restore command
+    restore_parser = subparsers.add_parser('restore', help='Restore a volume from backup')
+    restore_parser.add_argument('volume', help='Volume name')
 
     args = parser.parse_args()
 
-    # Handle different command patterns
-    if args.command == 'list' or (args.volume is None and args.action is None):
-        list_volumes()
-    elif args.volume and args.action == 'list':
-        list_volume_backups(args.volume)
-    elif args.volume and args.action == 'restore':
+    if args.command == 'list':
+        if args.volume:
+            list_volume_backups(args.volume)
+        else:
+            list_volumes()
+    elif args.command == 'restore':
         restore_volume(args.volume)
-    elif args.volume and args.action is None:
-        # Assume "volume-backups <volume>" means list that volume's backups
-        list_volume_backups(args.volume)
     else:
         parser.print_help()
         sys.exit(1)

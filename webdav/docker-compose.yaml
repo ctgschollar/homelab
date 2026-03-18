@@ -1,0 +1,13 @@
+services:
+  webdav:
+    image: bytemark/webdav
+    ports:
+      - "8888:80"
+    volumes:
+      - type: bind
+        source: /mnt/shared/vr
+        target: /var/lib/dav/data
+    environment:
+      AUTH_TYPE: Basic
+      USERNAME: ${WEBDAV_USERNAME}
+      PASSWORD: ${WEBDAV_PASSWORD}

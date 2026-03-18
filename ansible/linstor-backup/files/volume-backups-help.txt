@@ -4,7 +4,7 @@
 
 COMMANDS:
   volume-backups list                    List all backed up volumes
-  volume-backups <volume> list           List all backups for a volume
+  volume-backups list <volume>           List all backups for a volume
   volume-backups restore <volume>        Restore a volume (interactive)
 
 EXAMPLES:
@@ -12,7 +12,7 @@ EXAMPLES:
   volume-backups list
 
   # Check sonarr backups
-  volume-backups sonarr_config list
+  volume-backups list sonarr_config
 
   # Restore sonarr from backup
   volume-backups restore sonarr_config

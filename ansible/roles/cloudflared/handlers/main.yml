@@ -1,0 +1,11 @@
+---
+# Cloudflared Tunnel Role - Handlers
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart cloudflared
+  systemd:
+    name: cloudflared-tunnel
+    state: restarted

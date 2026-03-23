@@ -1,0 +1,23 @@
+tunnel: {{ cloudflared_tunnel_name }}
+credentials-file: /etc/cloudflared/{{ cloudflared_tunnel_id }}.json
+
+# Optional: keep logs modest
+loglevel: {{ cloudflared_loglevel | default('info') }}
+transport:
+  keepAliveTimeout: {{ cloudflared_keepalive_timeout | default('30s') }}
+
+ingress:
+{% for ingress in cloudflared_ingress_rules %}
+  # {{ ingress.description | default('') }}
+  - hostname: {{ ingress.hostname }}
+    service: {{ ingress.service }}
+{% if ingress.origin_request is defined %}
+    originRequest:
+{% for key, value in ingress.origin_request.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+  # Default: block anything else
+  - service: http_status:404

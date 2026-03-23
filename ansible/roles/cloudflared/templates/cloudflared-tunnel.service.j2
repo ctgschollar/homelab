@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel: {{ cloudflared_tunnel_name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
+Restart=always
+RestartSec={{ cloudflared_restart_sec | default('3') }}
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

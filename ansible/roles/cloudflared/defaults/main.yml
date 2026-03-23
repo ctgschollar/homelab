@@ -1,0 +1,49 @@
+---
+# Cloudflared Tunnel Role - Default Variables
+
+# Basic tunnel configuration
+cloudflared_tunnel_name: "jellyfin-edge"
+cloudflared_tunnel_id: "ef7218ae-44ae-4130-848d-44dbe74a7252"
+cloudflared_loglevel: "info"
+cloudflared_keepalive_timeout: "30s"
+cloudflared_restart_sec: "3"
+
+# Tunnel credentials (should be overridden in vars or vault)
+# Structure: { "AccountTag": "xxx", "TunnelSecret": "xxx", "TunnelID": "xxx", "Endpoint": "xxx" }
+cloudflared_tunnel_credentials: {}
+
+# Ingress rules configuration
+cloudflared_ingress_rules:
+  - hostname: "jellyfin.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Public hostname -> Edge Traefik (loopback, TLS)"
+    origin_request:
+      noTLSVerify: false
+      http2Origin: true
+      connectTimeout: "10s"
+      tlsTimeout: "10s"
+      httpHostHeader: "jellyfin.schollar.dev"
+  
+  - hostname: "jellyseerr.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Jellyseerr (usually fine either way; set false if you see WS/SSE issues)"
+    origin_request:
+      http2Origin: true
+  
+  - hostname: "excalidraw.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Excalidraw frontend"
+    origin_request:
+      http2Origin: true
+  
+  - hostname: "excalidraw-room.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Excalidraw room server (WebSockets) - force HTTP/1.1"
+    origin_request:
+      http2Origin: false
+  
+  - hostname: "excalidraw-storage.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Excalidraw storage backend (likely fine either way)"
+    origin_request:
+      http2Origin: true

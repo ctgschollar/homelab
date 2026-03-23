@@ -1,0 +1,67 @@
+---
+# Cloudflared Tunnel Role - Main Tasks
+- name: Install Cloudflare GPG key
+  apt_key:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    keyring: /usr/share/keyrings/cloudflare-main.gpg
+    state: present
+
+- name: Add Cloudflare APT repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared {{ ansible_distribution_release }} main"
+    state: present
+    filename: cloudflared
+
+- name: Update APT cache
+  apt:
+    update_cache: yes
+
+- name: Install cloudflared package
+  apt:
+    name: cloudflared
+    state: present
+
+- name: Create cloudflared configuration directory
+  file:
+    path: /etc/cloudflared
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy cloudflared tunnel configuration
+  template:
+    src: config.yml.j2
+    dest: /etc/cloudflared/config.yml
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  notify: restart cloudflared
+
+- name: Deploy tunnel credentials file
+  copy:
+    content: "{{ cloudflared_tunnel_credentials | to_json }}"
+    dest: "/etc/cloudflared/{{ cloudflared_tunnel_id }}.json"
+    owner: root
+    group: root
+    mode: '0640'
+  notify: restart cloudflared
+
+- name: Create systemd service file
+  template:
+    src: cloudflared-tunnel.service.j2
+    dest: /etc/systemd/system/cloudflared-tunnel.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart cloudflared
+
+- name: Enable and start cloudflared-tunnel service
+  systemd:
+    name: cloudflared-tunnel
+    enabled: yes
+    state: started
+    daemon_reload: yes

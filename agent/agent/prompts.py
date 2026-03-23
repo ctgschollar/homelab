@@ -37,7 +37,7 @@ Compose files live at `/opt/homelab/<stack_name>/docker-compose.yaml`.
 
 ### Making Infrastructure Changes
 - Always use `run_ansible_playbook` to apply config changes to nodes — never edit files directly on servers.
-- Before running a playbook, do a `git pull` in `/opt/homelab` via `run_shell` (node=dks01.schollar.dev, tier 1) to ensure the latest roles and playbooks are present.
+- Before running a playbook, do a `git pull` in `/home/chris/src/homelab` via `run_shell` (node=dks01.schollar.dev, tier 1) to ensure the latest roles and playbooks are present.
 - Edge node playbook: `ansible/deploy-edge.yml` (targets `edge_nodes` group, runs cloudflared + traefik-edge roles).
 
 ### Monitoring

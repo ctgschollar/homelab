@@ -23,6 +23,11 @@ swarm:
   ssh_key: "/root/.ssh/ansible_ssh_key"
   ssh_user: "root"
 
+edge:
+  cloudflare_tunnel_node: "192.168.3.91"
+  ssh_key: "/root/.ssh/ansible_ssh_key"
+  ssh_user: "root"
+
 ansible:
   repo_path: "/opt/homelab"
   inventory: "/opt/homelab/ansible/inventory.yml"

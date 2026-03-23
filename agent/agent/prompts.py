@@ -29,6 +29,8 @@ INFRA_CONTEXT = """
 - CoreDNS on port 53 (LAN), port 5353 (Tailscale)
 
 ### Compose Files
+**Edge node:** `192.168.3.91` — runs cloudflared (Cloudflare Tunnel). SSH access via the same key as swarm nodes. Tunnel config lives on this node; check `/etc/cloudflared/` or `~/.cloudflared/` for the config file.
+
 Compose files live at `/opt/homelab/<stack_name>/docker-compose.yaml`.
 
 ### Monitoring

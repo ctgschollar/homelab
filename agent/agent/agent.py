@@ -238,12 +238,13 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
             if context:
                 reason = context if not reason else f"{reason} — context: {context}"
 
-            found = pending.resolve(plan_id, approved, reason=reason)
-
-            # Update the original Slack message to show resolution
-            if found and plan_id in _message_cache:
+            # Update the original Slack message before resolving the future,
+            # so the HTTP call completes before the caller can cancel the server.
+            if plan_id in _message_cache:
                 channel, ts = _message_cache.pop(plan_id)
                 await slack.resolve_plan_message(channel, ts, plan_id, approved, context, user)
+
+            found = pending.resolve(plan_id, approved, reason=reason)
 
             # Returning None closes the modal with no error
             return Response(content="", status_code=200)

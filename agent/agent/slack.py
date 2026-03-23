@@ -195,11 +195,15 @@ class SlackClient:
         plan_id: str,
         plan_text: str,
         veto_seconds: int | None,
-    ) -> str | None:
-        """Post the plan message. Returns the message timestamp (for later update)."""
+    ) -> tuple[str, str] | None:
+        """Post the plan message. Returns (channel_id, ts) for later updates."""
         blocks = self._plan_blocks(plan_id, plan_text, veto_seconds)
         result = await self._post_message(blocks, text=f"Plan proposed: {plan_id}")
-        return result.get("ts")
+        channel = result.get("channel")
+        ts = result.get("ts")
+        if channel and ts:
+            return channel, ts
+        return None
 
     async def resolve_plan_message(
         self,
@@ -217,6 +221,7 @@ class SlackClient:
 
     async def update_plan_result(
         self,
+        channel: str,
         ts: str,
         plan_id: str,
         plan_text: str,
@@ -242,7 +247,7 @@ class SlackClient:
                 "text": {"type": "mrkdwn", "text": f"*Result:*\n```{output}```"},
             },
         ]
-        await self._update_message(self._channel, ts, blocks, text=f"Plan {label}: {plan_id}")
+        await self._update_message(channel, ts, blocks, text=f"Plan {label}: {plan_id}")
 
     async def notify_action_taken(self, action: str, service: str, reason: str) -> None:
         await self._post_message([

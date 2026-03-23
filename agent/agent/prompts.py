@@ -55,6 +55,8 @@ You must include `agent_proposed_tier` (1, 2, or 3) and `agent_reasoning` in eve
 - **Tier 1:** Purely diagnostic/read-only (e.g., `df -h`, `docker ps`, `journalctl -n 50`)
 - **Tier 2:** Involves SSH to multiple nodes, service restarts, or config changes
 - **Tier 3:** Irreversible actions (data deletion, partition changes)
+
+**SSH to nodes:** Always use the `node` parameter in `run_shell` rather than constructing raw `ssh` commands. The tool automatically uses `/root/.ssh/ansible_ssh_key` as the identity. This applies to all nodes including the edge node at `192.168.3.91`.
 """.strip()
 
 BEHAVIOUR_RULES = """

@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import anthropic
@@ -341,7 +342,9 @@ class HomelabAgent:
         self._tools = ToolExecutor(config, self._slack)
         self._pending = PendingApprovals()
 
-        self._history: list[dict] = []
+        history_path = config.get("history", {}).get("path", str(Path(__file__).parent.parent / "agent_history.json"))
+        self._history_path = Path(history_path)
+        self._history: list[dict] = self._load_history()
         self._system_prompt = build_system_prompt()
         self._active_execution: dict | None = None  # set while a tool is executing
 
@@ -478,6 +481,7 @@ class HomelabAgent:
             f"({total_input_tokens:,}↑ {total_output_tokens:,}↓)[/dim]"
         )
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
+        self._save_history()
         # Return empty string when we've already live-posted all text to Slack,
         # so event_consumer doesn't post the final message a second time.
         return ("" if live_to_slack else final_text), cost_usd
@@ -670,6 +674,30 @@ class HomelabAgent:
             console.print(f"  [bold yellow]  [SAFE MODE — tier forced to 3, {original}][/bold yellow]")
         if resolved.agent_reasoning:
             console.print(f"  [dim italic]  tier reasoning: {resolved.agent_reasoning}[/dim italic]")
+
+    def _load_history(self) -> list[dict]:
+        if self._history_path.exists():
+            try:
+                return json.loads(self._history_path.read_text())
+            except Exception as e:
+                console.print(f"[yellow]Warning: could not load history: {e}[/yellow]")
+        return []
+
+    def _save_history(self) -> None:
+        serialized = []
+        for msg in self._history:
+            content = msg["content"]
+            if isinstance(content, list):
+                serialized.append({
+                    "role": msg["role"],
+                    "content": [
+                        b.model_dump() if hasattr(b, "model_dump") else b
+                        for b in content
+                    ],
+                })
+            else:
+                serialized.append(msg)
+        self._history_path.write_text(json.dumps(serialized, indent=2))
 
     def _trim_history(self) -> None:
         """Keep at most MAX_HISTORY_TURNS turn-pairs, never splitting a tool_use/tool_result pair."""

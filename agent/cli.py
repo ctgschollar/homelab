@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import json
 import os
 import re
 import sys
 
 import yaml
 from rich.console import Console
+from rich.table import Table
 
 from agent.agent import ActionLogger, HomelabAgent
 from agent.monitor import MonitorDaemon
@@ -90,14 +92,161 @@ async def run_check(config: dict) -> None:
 
 REPL_HELP = """\
 Built-in commands:
-  /quit     — exit
-  /status   — show current service health
-  /history  — show conversation turn count
-  /safemode — show current safe mode state (use config_cli.py to change)
+  /quit          — exit
+  /status        — show current service health
+  /history       — show conversation turn count
+  /safemode      — show current safe mode state (use config_cli.py to change)
+  /log           — show all log entries
+  /log 1h        — entries from the last hour
+  /log 30m       — entries from the last 30 minutes
+  /log today     — entries since midnight
+  /log 2026-03-23           — entries for a specific date
+  /log 2026-03-23 2026-03-24 — entries between two dates
 """
 
 
-async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue) -> None:
+# ---------------------------------------------------------------------------
+# Action log viewer
+# ---------------------------------------------------------------------------
+
+_EVENT_STYLES: dict[str, str] = {
+    "action_taken":     "green",
+    "plan_proposed":    "yellow",
+    "plan_approved":    "bold green",
+    "plan_cancelled":   "red",
+    "tier_reasoning":   "dim cyan",
+    "monitor_alert":    "bold red",
+    "monitor_recovered": "bold green",
+}
+
+
+def _parse_log_range(args: list[str]) -> tuple[datetime | None, datetime | None]:
+    """Parse /log arguments into (start, end) datetimes (UTC). Both may be None."""
+    now = datetime.now(timezone.utc)
+
+    if not args:
+        return None, None
+
+    # Relative: 30m, 2h, 1d
+    m = re.fullmatch(r"(\d+)(m|h|d)", args[0].lower())
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = timedelta(minutes=n) if unit == "m" else timedelta(hours=n) if unit == "h" else timedelta(days=n)
+        return now - delta, None
+
+    if args[0].lower() == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, None
+
+    # Absolute date(s): YYYY-MM-DD [YYYY-MM-DD]
+    def _parse_date(s: str) -> datetime:
+        return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+    try:
+        start = _parse_date(args[0])
+        end = _parse_date(args[1]) + timedelta(days=1) if len(args) > 1 else start + timedelta(days=1)
+        return start, end
+    except ValueError:
+        pass
+
+    return None, None
+
+
+def show_log(log_path: str, args: list[str]) -> None:
+    start, end = _parse_log_range(args)
+
+    if args and start is None and end is None:
+        console.print(f"  [red]Unrecognised range: {' '.join(args)}[/red]")
+        console.print("  Try: /log 1h  |  /log today  |  /log 2026-03-23")
+        return
+
+    try:
+        with open(log_path) as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        console.print("  [dim]No action log found yet.[/dim]")
+        return
+
+    entries = []
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        ts_str = entry.get("ts", "")
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except ValueError:
+            ts = None
+
+        if ts and start and ts < start:
+            continue
+        if ts and end and ts >= end:
+            continue
+        entries.append((ts, entry))
+
+    if not entries:
+        console.print("  [dim]No log entries for that range.[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+    table.add_column("Time", style="dim", width=20, no_wrap=True)
+    table.add_column("Event", width=18, no_wrap=True)
+    table.add_column("Detail")
+
+    for ts, entry in entries:
+        ts_display = ts.strftime("%m-%d %H:%M:%S") if ts else "?"
+        event = entry.get("event", "?")
+        style = _EVENT_STYLES.get(event, "")
+        detail = _format_log_detail(entry)
+        table.add_row(ts_display, f"[{style}]{event}[/{style}]" if style else event, detail)
+
+    console.print(table)
+
+
+def _format_log_detail(entry: dict) -> str:
+    event = entry.get("event", "")
+
+    if event == "action_taken":
+        tool = entry.get("tool", "?")
+        outcome = entry.get("outcome", "")[:60]
+        tier = entry.get("tier", "?")
+        safe = " [safe mode]" if entry.get("safe_mode_active") else ""
+        return f"{tool} (tier {tier}{safe}) — {outcome}"
+
+    if event in ("plan_proposed", "plan_approved", "plan_cancelled"):
+        plan_id = entry.get("plan_id", "?")
+        tool = entry.get("tool", "?")
+        reason = f" — {entry['reason']}" if "reason" in entry else ""
+        return f"{plan_id} / {tool}{reason}"
+
+    if event == "tier_reasoning":
+        tool = entry.get("tool", "?")
+        proposed = entry.get("agent_proposed_tier", "?")
+        effective = entry.get("effective_tier", "?")
+        reasoning = entry.get("reasoning", "")[:60]
+        return f"{tool} proposed={proposed} effective={effective} — {reasoning}"
+
+    if event == "monitor_alert":
+        svc = entry.get("service", "?")
+        r, d = entry.get("running", "?"), entry.get("desired", "?")
+        err = entry.get("last_error", "")[:40]
+        return f"{svc} {r}/{d} replicas — {err}"
+
+    if event == "monitor_recovered":
+        svc = entry.get("service", "?")
+        dur = entry.get("down_duration_seconds", "?")
+        return f"{svc} — down for {dur}s"
+
+    # Fallback: show remaining keys
+    skip = {"ts", "event"}
+    return "  ".join(f"{k}={v}" for k, v in entry.items() if k not in skip)[:80]
+
+
+async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue, log_path: str) -> None:
     loop = asyncio.get_event_loop()
     console.print("[bold cyan]Homelab Agent[/bold cyan] — type /quit to exit, /help for commands.")
 
@@ -125,6 +274,9 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             state = "ON" if agent._safety.global_safe_mode else "OFF"
             console.print(f"Global safe mode: [bold]{state}[/bold]")
             console.print("Use [cyan]python config_cli.py safemode on|off[/cyan] to change.")
+        elif upper.startswith("/LOG"):
+            log_args = line.split()[1:]
+            show_log(log_path, log_args)
         elif upper.startswith("APPROVE ") or upper.startswith("STOP "):
             command, _, plan_id = line.partition(" ")
             plan_id = plan_id.strip().lower()
@@ -210,7 +362,7 @@ async def amain(args: argparse.Namespace) -> None:
     else:
         # Interactive REPL
         try:
-            await run_repl(agent, config, event_queue)
+            await run_repl(agent, config, event_queue, log_path)
         except KeyboardInterrupt:
             pass
         finally:

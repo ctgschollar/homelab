@@ -216,8 +216,6 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
-<<<<<<< HEAD
-=======
         "name": "git_pull",
         "description": (
             "Pull the latest changes from the remote into the dev repo at the configured dev_repo_path. "
@@ -236,7 +234,6 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
->>>>>>> 717adc841ee01e010780015b85f90fc3284c1bdc
         "name": "commit_config_updates",
         "description": (
             "Sync config changes made in /opt/homelab back to the dev repo at "
@@ -500,8 +497,6 @@ class ToolExecutor:
             stack_name,
         ])
 
-<<<<<<< HEAD
-=======
     async def _tool_git_pull(self, inp: dict) -> str:
         dev = self._dev_repo_path
         token = self._git_token
@@ -525,7 +520,6 @@ class ToolExecutor:
 
         return result
 
->>>>>>> 717adc841ee01e010780015b85f90fc3284c1bdc
     async def _tool_commit_config_updates(self, inp: dict) -> str:
         message = inp["message"]
         paths: list[str] | None = inp.get("paths")

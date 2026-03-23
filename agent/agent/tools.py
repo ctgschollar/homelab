@@ -667,7 +667,8 @@ class ToolExecutor:
             f'cd "{repo}" && '
             f'git {git_opts} add "{abs_report}" && '
             f'git {git_opts} commit -m "{commit_msg}" && '
-            f'git push "{push_url}"'
+            f'git push "{push_url}" && '
+            f'git update-ref refs/remotes/origin/main HEAD'
         )
         git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
 
@@ -711,7 +712,7 @@ class ToolExecutor:
             f'if git {git_opts} diff --cached --quiet; then '
             f'echo "No changes to commit."; '
             f'else '
-            f'git {git_opts} commit -m "{message}" && git push "{push_url}"; '
+            f'git {git_opts} commit -m "{message}" && git push "{push_url}" && git update-ref refs/remotes/origin/main HEAD; '
             f'fi'
         )
 

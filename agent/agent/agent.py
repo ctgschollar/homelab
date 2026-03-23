@@ -176,13 +176,17 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
         # Verify Slack signature
         timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
         signature = request.headers.get("X-Slack-Signature", "")
+        console.print(f"  [dim]Slack interaction received — timestamp={timestamp!r} sig={signature[:20]!r}…[/dim]")
+
         if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+            console.print("  [bold red]Slack signature verification failed[/bold red]")
             return Response(content="Invalid signature", status_code=403)
 
         # Interactions arrive as application/x-www-form-urlencoded with a `payload` field
         form = await request.form()
         payload = json.loads(form.get("payload", "{}"))
         interaction_type = payload.get("type")
+        console.print(f"  [dim]Slack interaction type: {interaction_type!r}[/dim]")
 
         # ---- Button click: open confirmation modal -----------------------
         if interaction_type == "block_actions":

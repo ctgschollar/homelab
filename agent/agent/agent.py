@@ -345,6 +345,7 @@ class HomelabAgent:
         history_path = config.get("history", {}).get("path", str(Path(__file__).parent.parent / "agent_history.json"))
         self._history_path = Path(history_path)
         self._history: list[dict] = self._load_history()
+        self._last_cost_breakdown: str = ""
         self._system_prompt = build_system_prompt()
         self._active_execution: dict | None = None  # set while a tool is executing
 
@@ -487,19 +488,25 @@ class HomelabAgent:
                 self._history.append({"role": "user", "content": tool_results})
                 self._trim_history()
 
-        cost_usd = (
-            total_input_tokens / 1_000_000 * self._input_cost_per_mtok
-            + total_cache_write_tokens / 1_000_000 * self._input_cost_per_mtok * 1.25
-            + total_cache_read_tokens / 1_000_000 * self._input_cost_per_mtok * 0.10
-            + total_output_tokens / 1_000_000 * self._output_cost_per_mtok
-        )
-        cache_info = ""
-        if total_cache_write_tokens or total_cache_read_tokens:
-            cache_info = f" cache: {total_cache_write_tokens:,}W {total_cache_read_tokens:,}R"
-        console.print(
-            f"  [dim]Cost: ${cost_usd:.4f} "
-            f"({total_input_tokens:,}↑ {total_output_tokens:,}↓{cache_info})[/dim]"
-        )
+        input_cost   = total_input_tokens       / 1_000_000 * self._input_cost_per_mtok
+        write_cost   = total_cache_write_tokens  / 1_000_000 * self._input_cost_per_mtok * 1.25
+        read_cost    = total_cache_read_tokens   / 1_000_000 * self._input_cost_per_mtok * 0.10
+        output_cost  = total_output_tokens       / 1_000_000 * self._output_cost_per_mtok
+        cost_usd     = input_cost + write_cost + read_cost + output_cost
+
+        lines = [
+            f"  input:  ${input_cost:.5f}  ({total_input_tokens:,} tokens)",
+        ]
+        if total_cache_write_tokens:
+            lines.append(f"  cache↑: ${write_cost:.5f}  ({total_cache_write_tokens:,} tokens written)")
+        if total_cache_read_tokens:
+            lines.append(f"  cache↓: ${read_cost:.5f}  ({total_cache_read_tokens:,} tokens read)")
+        lines.append(f"  output: ${output_cost:.5f}  ({total_output_tokens:,} tokens)")
+        lines.append(f"  total:  ${cost_usd:.5f}")
+        breakdown = "\n".join(lines)
+        console.print(f"[dim]{breakdown}[/dim]")
+
+        self._last_cost_breakdown = breakdown
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
         self._save_history()
         # Return empty string when we've already live-posted all text to Slack,

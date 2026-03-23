@@ -402,10 +402,12 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
 
 async def _post_cost(agent: HomelabAgent, cost_usd: float) -> None:
     zar_rate = await _fetch_zar_rate()
-    cost_str = f"${cost_usd:.4f}"
+    total_str = f"${cost_usd:.5f}"
     if zar_rate is not None:
-        cost_str += f" / R{cost_usd * zar_rate:.2f}"
-    await agent._slack.notify(f"_Cost: {cost_str}_")
+        total_str += f" / R{cost_usd * zar_rate:.2f}"
+    breakdown = agent._last_cost_breakdown
+    msg = f"_Cost breakdown:_\n```{breakdown}```\n_Total: {total_str}_"
+    await agent._slack.notify(msg)
 
 
 async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> None:

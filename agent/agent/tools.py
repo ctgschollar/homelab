@@ -505,16 +505,12 @@ class ToolExecutor:
             )
 
         # Commit and push using PAT over HTTPS; no-op if nothing changed
-        git_opts = (
-            f'-c safe.directory="{dev}" '
-            f'-c user.name="{author_name}" '
-            f'-c user.email="{author_email}"'
-        )
+        git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
         git_cmd = (
-            f'cd "{dev}" && git {git_opts} add -A && '
+            f'cd "{dev}" && git add -A && '
             f'git {git_opts} diff --cached --quiet && echo "No changes to commit." || '
             f'(git {git_opts} commit -m "{message}" && '
-            f'git {git_opts} -c "http.extraHeader=Authorization: token {token}" push)'
+            f'git -c "http.extraHeader=Authorization: token {token}" push)'
         )
 
         return await self._run_subprocess(

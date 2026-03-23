@@ -538,11 +538,28 @@ class HomelabAgent:
             console.print(f"  [dim italic]  tier reasoning: {resolved.agent_reasoning}[/dim italic]")
 
     def _trim_history(self) -> None:
-        """Keep at most MAX_HISTORY_TURNS turn-pairs (user+assistant)."""
-        # Each turn pair is 2 entries; trim from the front
+        """Keep at most MAX_HISTORY_TURNS turn-pairs, never splitting a tool_use/tool_result pair."""
         max_entries = MAX_HISTORY_TURNS * 2
         if len(self._history) > max_entries:
             self._history = self._history[-max_entries:]
+
+        # Walk forward until the first message is not a tool_result user message.
+        # Slicing by count can leave an orphaned tool_result whose tool_use was trimmed away,
+        # which the API rejects with a 400.
+        while self._history:
+            first = self._history[0]
+            content = first.get("content", [])
+            if (
+                first.get("role") == "user"
+                and isinstance(content, list)
+                and any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
+            ):
+                self._history = self._history[1:]
+            else:
+                break
 
     # ------------------------------------------------------------------
     # Approval listener lifecycle

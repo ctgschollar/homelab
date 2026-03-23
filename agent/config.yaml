@@ -30,8 +30,8 @@ edge:
   ssh_user: "root"
 
 ansible:
-  repo_path: "/home/chris/src/homelab"
-  inventory: "/home/chris/src/homelab/ansible/inventory.yml"
+  repo_path: "/opt/homelab"
+  inventory: "/opt/homelab/ansible/inventory.yml"
 
 monitor:
   poll_interval: 30

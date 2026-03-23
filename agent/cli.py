@@ -362,28 +362,29 @@ async def amain(args: argparse.Namespace) -> None:
     # Start background tasks
     monitor_task = asyncio.create_task(monitor.run())
     consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
-    listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue)
-
-    bg_tasks = [monitor_task, consumer_task]
-    all_tasks = [monitor_task, consumer_task, listener_task]
 
     if args.daemon:
+        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue)
         console.print("[dim]Running in daemon mode. Ctrl+C to stop.[/dim]")
         try:
-            await asyncio.gather(*all_tasks)
+            await asyncio.gather(monitor_task, consumer_task, listener_task)
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
+        finally:
+            monitor_task.cancel()
+            consumer_task.cancel()
+            listener_server.should_exit = True
+            await asyncio.gather(monitor_task, consumer_task, listener_task, return_exceptions=True)
     else:
-        # Interactive REPL
+        # Interactive REPL — no listener, approvals via CLI only
         try:
             await run_repl(agent, config, event_queue, log_path)
         except KeyboardInterrupt:
             pass
         finally:
-            for t in bg_tasks:
-                t.cancel()
-            listener_server.should_exit = True
-            await asyncio.gather(*all_tasks, return_exceptions=True)
+            monitor_task.cancel()
+            consumer_task.cancel()
+            await asyncio.gather(monitor_task, consumer_task, return_exceptions=True)
 
     await agent.aclose()
 

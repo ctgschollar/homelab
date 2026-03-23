@@ -21,9 +21,9 @@ import sys
 
 import yaml
 from rich.console import Console
-from rich.table import Table
 
 from agent.agent import ActionLogger, HomelabAgent
+from agent.log_viewer import browse_log
 from agent.monitor import MonitorDaemon
 
 console = Console()
@@ -109,16 +109,6 @@ Built-in commands:
 # Action log viewer
 # ---------------------------------------------------------------------------
 
-_EVENT_STYLES: dict[str, str] = {
-    "action_taken":     "green",
-    "plan_proposed":    "yellow",
-    "plan_approved":    "bold green",
-    "plan_cancelled":   "red",
-    "tier_reasoning":   "dim cyan",
-    "monitor_alert":    "bold red",
-    "monitor_recovered": "bold green",
-}
-
 
 def _parse_log_range(args: list[str]) -> tuple[datetime | None, datetime | None]:
     """Parse /log arguments into (start, end) datetimes (UTC). Both may be None."""
@@ -167,7 +157,7 @@ def show_log(log_path: str, args: list[str]) -> None:
         console.print("  [dim]No action log found yet.[/dim]")
         return
 
-    entries = []
+    entries: list[tuple[datetime | None, dict]] = []
     for raw in lines:
         raw = raw.strip()
         if not raw:
@@ -192,58 +182,7 @@ def show_log(log_path: str, args: list[str]) -> None:
         console.print("  [dim]No log entries for that range.[/dim]")
         return
 
-    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
-    table.add_column("Time", style="dim", width=20, no_wrap=True)
-    table.add_column("Event", width=18, no_wrap=True)
-    table.add_column("Detail")
-
-    for ts, entry in entries:
-        ts_display = ts.strftime("%m-%d %H:%M:%S") if ts else "?"
-        event = entry.get("event", "?")
-        style = _EVENT_STYLES.get(event, "")
-        detail = _format_log_detail(entry)
-        table.add_row(ts_display, f"[{style}]{event}[/{style}]" if style else event, detail)
-
-    console.print(table)
-
-
-def _format_log_detail(entry: dict) -> str:
-    event = entry.get("event", "")
-
-    if event == "action_taken":
-        tool = entry.get("tool", "?")
-        outcome = entry.get("outcome", "")[:60]
-        tier = entry.get("tier", "?")
-        safe = " [safe mode]" if entry.get("safe_mode_active") else ""
-        return f"{tool} (tier {tier}{safe}) — {outcome}"
-
-    if event in ("plan_proposed", "plan_approved", "plan_cancelled"):
-        plan_id = entry.get("plan_id", "?")
-        tool = entry.get("tool", "?")
-        reason = f" — {entry['reason']}" if "reason" in entry else ""
-        return f"{plan_id} / {tool}{reason}"
-
-    if event == "tier_reasoning":
-        tool = entry.get("tool", "?")
-        proposed = entry.get("agent_proposed_tier", "?")
-        effective = entry.get("effective_tier", "?")
-        reasoning = entry.get("reasoning", "")[:60]
-        return f"{tool} proposed={proposed} effective={effective} — {reasoning}"
-
-    if event == "monitor_alert":
-        svc = entry.get("service", "?")
-        r, d = entry.get("running", "?"), entry.get("desired", "?")
-        err = entry.get("last_error", "")[:40]
-        return f"{svc} {r}/{d} replicas — {err}"
-
-    if event == "monitor_recovered":
-        svc = entry.get("service", "?")
-        dur = entry.get("down_duration_seconds", "?")
-        return f"{svc} — down for {dur}s"
-
-    # Fallback: show remaining keys
-    skip = {"ts", "event"}
-    return "  ".join(f"{k}={v}" for k, v in entry.items() if k not in skip)[:80]
+    browse_log(entries)
 
 
 async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue, log_path: str) -> None:
@@ -383,11 +322,14 @@ def main() -> None:
 
     config = load_config(args.config)
 
-    if args.check:
-        asyncio.run(run_check(config))
-        return
+    try:
+        if args.check:
+            asyncio.run(run_check(config))
+            return
 
-    asyncio.run(amain(args))
+        asyncio.run(amain(args))
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

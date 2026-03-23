@@ -6,6 +6,9 @@ import json
 import time
 
 import httpx
+from rich.console import Console
+
+_console = Console()
 
 
 _COLORS = {
@@ -56,7 +59,10 @@ class SlackClient:
             headers={"Authorization": f"Bearer {self._token}"},
             json=payload,
         )
-        return resp.json()
+        data = resp.json()
+        if not data.get("ok"):
+            _console.print(f"  [bold red]Slack API error ({method}):[/bold red] {data.get('error', data)}")
+        return data
 
     async def _post_message(self, blocks: list, text: str = "") -> dict:
         return await self._call("chat.postMessage", {

@@ -78,7 +78,7 @@ BEHAVIOUR_RULES = """
 
 ## Incident Reports
 
-After completing ANY significant event — a monitor alert, a deployment, a rollback, a config change, or a user request that required action — call `write_incident_report` as your final step, then `commit_config_updates` to persist it.
+After completing ANY significant event — a monitor alert, a deployment, a rollback, a config change, or a user request that required action — call `write_incident_report` as your final step. It writes, commits, and pushes in one step. Do NOT call `commit_config_updates` after it.
 
 - Use `start_time` = the timestamp when the event or request was first received.
 - Choose tags from the predefined list in config: one event-type tag (failure, recovery, deployment, rollback, config-change, maintenance, investigation, user-request) and one or more domain tags (docker, ansible, storage, networking, monitoring, database, security, media).

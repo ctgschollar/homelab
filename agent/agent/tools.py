@@ -218,11 +218,11 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "write_incident_report",
         "description": (
-            "Write a structured incident report to the reports directory and return a Slack-ready summary. "
+            "Write a structured incident report to the reports directory, commit it, and push. "
             "Use this as the FINAL action for any completed event — service failures, deployments, "
             "config changes, user requests, investigations. "
-            "The tool reads the action log internally for the given time window — do NOT pass log content yourself. "
-            "After calling this, call commit_config_updates to push the report to the repo."
+            "The tool writes the file, commits, and pushes in one step — do NOT call commit_config_updates after. "
+            "The tool reads the action log internally for the given time window — do NOT pass log content yourself."
         ),
         "input_schema": {
             "type": "object",
@@ -643,10 +643,29 @@ class ToolExecutor:
         ]
 
         filepath.write_text("\n".join(sections))
+
+        # Commit directly — the file is already in the dev repo, no rsync needed
+        dev = self._dev_repo_path
+        token = self._git_token
+        author_name = self._git_author_name
+        author_email = self._git_author_email
+        git_opts = (
+            f'-c safe.directory="{dev}" '
+            f'-c user.name="{author_name}" '
+            f'-c user.email="{author_email}"'
+        )
+        commit_msg = f"incident: INC-{num:04d} {title}"
+        git_cmd = (
+            f'cd "{dev}" && '
+            f'git {git_opts} add "reports/{filename}" && '
+            f'git {git_opts} commit -m "{commit_msg}" && '
+            f'git {git_opts} -c "http.extraHeader=Authorization: token {token}" push'
+        )
+        git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
+
         return (
-            f"INC-{num:04d} written to `reports/{filename}` "
-            f"({len(log_entries)} action log entries, tags: {tags_str}). "
-            f"Call commit_config_updates to push."
+            f"INC-{num:04d} written and committed: `reports/{filename}` "
+            f"({len(log_entries)} action log entries, tags: {tags_str}).\n{git_result}"
         )
 
     async def _tool_git_pull(self, inp: dict) -> str:

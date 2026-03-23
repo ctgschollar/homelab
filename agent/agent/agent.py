@@ -302,6 +302,8 @@ class HomelabAgent:
         anthropic_cfg = config.get("anthropic", {})
         self._model: str = anthropic_cfg.get("model", "claude-sonnet-4-20250514")
         self._client = anthropic.AsyncAnthropic(api_key=anthropic_cfg.get("api_key", ""))
+        self._input_cost_per_mtok: float = anthropic_cfg.get("input_cost_per_mtok", 3.0)
+        self._output_cost_per_mtok: float = anthropic_cfg.get("output_cost_per_mtok", 15.0)
 
         slack_cfg = config.get("slack", {})
         self._slack = SlackClient(
@@ -325,8 +327,8 @@ class HomelabAgent:
     # Public API
     # ------------------------------------------------------------------
 
-    async def chat(self, message: str, trigger: str = "cli:user_message") -> str:
-        """Process a single user message through the agentic loop. Returns final text."""
+    async def chat(self, message: str, trigger: str = "cli:user_message") -> tuple[str, float]:
+        """Process a single user message through the agentic loop. Returns (text, cost_usd)."""
         self._history.append({"role": "user", "content": message})
         self._trim_history()
         return await self._run_loop(trigger)
@@ -383,10 +385,15 @@ class HomelabAgent:
                 else:
                     raise
 
-    async def _run_loop(self, trigger: str) -> str:
+    async def _run_loop(self, trigger: str) -> tuple[str, float]:
         final_text = ""
+        total_input_tokens = 0
+        total_output_tokens = 0
+
         for _ in range(MAX_ITERATIONS):
             response = await self._api_create()
+            total_input_tokens += response.usage.input_tokens
+            total_output_tokens += response.usage.output_tokens
             self._history.append({"role": "assistant", "content": response.content})
             self._trim_history()
 
@@ -406,7 +413,15 @@ class HomelabAgent:
                 self._history.append({"role": "user", "content": tool_results})
                 self._trim_history()
 
-        return final_text
+        cost_usd = (
+            total_input_tokens / 1_000_000 * self._input_cost_per_mtok
+            + total_output_tokens / 1_000_000 * self._output_cost_per_mtok
+        )
+        console.print(
+            f"  [dim]Cost: ${cost_usd:.4f} "
+            f"({total_input_tokens:,}↑ {total_output_tokens:,}↓)[/dim]"
+        )
+        return final_text, cost_usd
 
     async def _handle_tool_calls(
         self,

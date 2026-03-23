@@ -19,6 +19,7 @@ import os
 import re
 import sys
 
+import httpx
 import yaml
 from rich.console import Console
 
@@ -27,6 +28,15 @@ from agent.log_viewer import browse_log
 from agent.monitor import MonitorDaemon
 
 console = Console()
+
+
+async def _fetch_zar_rate() -> float | None:
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get("https://api.frankfurter.app/latest?from=USD&to=ZAR")
+            return resp.json()["rates"]["ZAR"]
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -293,9 +303,13 @@ async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> Non
         try:
             if event["type"] == "user_message":
                 source = event.get("source", "cli")
-                response = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
+                response, cost_usd = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
                 if source == "slack" and response:
-                    await agent._slack.notify(response)
+                    zar_rate = await _fetch_zar_rate()
+                    cost_str = f"${cost_usd:.4f}"
+                    if zar_rate is not None:
+                        cost_str += f" / R{cost_usd * zar_rate:.2f}"
+                    await agent._slack.notify(f"{response}\n\n_Cost: {cost_str}_")
             else:
                 await agent.handle_event(event)
         except Exception as exc:

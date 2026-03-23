@@ -1,6 +1,9 @@
 anthropic:
   api_key: "${ANTHROPIC_API_KEY}"
   model: "claude-sonnet-4-20250514"
+  # Pricing per million tokens (USD) — update with: python config_cli.py pricing <input> <output>
+  input_cost_per_mtok: 3.0
+  output_cost_per_mtok: 15.0
 
 slack:
   bot_token: "${SLACK_BOT_TOKEN}"

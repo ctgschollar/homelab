@@ -13,6 +13,7 @@ Usage:
   python config_cli.py safe-resource remove stack|service|node <value>
   python config_cli.py safe-resource list
   python config_cli.py log-reasoning on|off
+  python config_cli.py pricing <input_per_mtok> <output_per_mtok>
 """
 from __future__ import annotations
 
@@ -187,6 +188,27 @@ def cmd_safe_resource(args: list[str]) -> None:
         sys.exit(1)
 
 
+def cmd_pricing(args: list[str]) -> None:
+    if len(args) < 2:
+        print("Usage: config_cli.py pricing <input_per_mtok> <output_per_mtok>")
+        print("  e.g. config_cli.py pricing 3.0 15.0")
+        sys.exit(1)
+    try:
+        input_cost = float(args[0])
+        output_cost = float(args[1])
+    except ValueError:
+        print("ERROR: costs must be numbers (USD per million tokens)")
+        sys.exit(1)
+    data, path = _load()
+    old_in = data["anthropic"].get("input_cost_per_mtok", "unset")
+    old_out = data["anthropic"].get("output_cost_per_mtok", "unset")
+    data["anthropic"]["input_cost_per_mtok"] = input_cost
+    data["anthropic"]["output_cost_per_mtok"] = output_cost
+    _save(data, path)
+    print(f"  input_cost_per_mtok:  {old_in!r} → {input_cost}")
+    print(f"  output_cost_per_mtok: {old_out!r} → {output_cost}")
+
+
 def cmd_log_reasoning(args: list[str]) -> None:
     if not args or args[0].lower() not in ("on", "off"):
         print("Usage: config_cli.py log-reasoning on|off")
@@ -210,6 +232,7 @@ COMMANDS = {
     "safemode": cmd_safemode,
     "safe-resource": cmd_safe_resource,
     "log-reasoning": cmd_log_reasoning,
+    "pricing": cmd_pricing,
 }
 
 

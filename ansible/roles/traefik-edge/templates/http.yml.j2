@@ -4,7 +4,7 @@ http:
     {{ route.router_name }}:
       rule: Host(`{{ route.host }}`)
       entryPoints: [web]
-      service: internal_traefik_https
+      service: {{ route.router_name ~ '_svc' if route.service_url is defined else 'internal_traefik_https' }}
       middlewares: [force_https_proto]
 
 {% endfor %}
@@ -18,6 +18,15 @@ http:
 {% endfor %}
         passHostHeader: true
         serversTransport: internal_tls   # <-- inside loadBalancer
+
+{% for route in traefik_edge_routes if route.service_url is defined %}
+    {{ route.router_name }}_svc:
+      loadBalancer:
+        servers:
+          - url: "{{ route.service_url }}"
+        passHostHeader: true
+
+{% endfor %}
 
   middlewares:
     force_https_proto:

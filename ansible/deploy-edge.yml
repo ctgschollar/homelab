@@ -1,0 +1,7 @@
+---
+- name: Deploy edge node services
+  hosts: edge_nodes
+  become: true
+  roles:
+    - cloudflared
+    - traefik-edge

@@ -29,3 +29,6 @@ traefik_edge_routes:
     router_name: "excalidraw_room_http"
   - host: "excalidraw-storage.schollar.dev"
     router_name: "excalidraw_storeage_http"  # Note: keeping original typo for consistency
+  - host: "agent.schollar.dev"
+    router_name: "agent_http"
+    service_url: "http://192.168.3.70:8765"  # Direct to dks01 approval listener, bypasses swarm Traefik

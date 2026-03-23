@@ -47,3 +47,9 @@ cloudflared_ingress_rules:
     description: "Excalidraw storage backend (likely fine either way)"
     origin_request:
       http2Origin: true
+
+  - hostname: "agent.schollar.dev"
+    service: "http://127.0.0.1:80"
+    description: "Homelab agent Slack approval listener -> Edge Traefik (loopback)"
+    origin_request:
+      http2Origin: true

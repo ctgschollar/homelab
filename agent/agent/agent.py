@@ -406,15 +406,22 @@ class HomelabAgent:
 
     async def _api_create(self) -> Any:
         """Call messages.create with exponential backoff on overloaded (529) errors."""
+        # Cache the system prompt and tool definitions — identical on every call.
+        # Cache reads cost ~10% of normal input price; writes cost ~125%.
+        system = [{"type": "text", "text": self._system_prompt, "cache_control": {"type": "ephemeral"}}]
+        tools = list(TOOL_DEFINITIONS)
+        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+
         delay = 5
         for attempt in range(5):
             try:
                 return await self._client.messages.create(
                     model=self._model,
                     max_tokens=4096,
-                    system=self._system_prompt,
+                    system=system,
                     messages=self._history,
-                    tools=TOOL_DEFINITIONS,
+                    tools=tools,
+                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                 )
             except anthropic.APIStatusError as exc:
                 if exc.status_code == 529 and attempt < 4:
@@ -429,12 +436,16 @@ class HomelabAgent:
         final_text = ""
         total_input_tokens = 0
         total_output_tokens = 0
+        total_cache_write_tokens = 0
+        total_cache_read_tokens = 0
         live_to_slack = not trigger.startswith("cli:")
 
         for iteration in range(MAX_ITERATIONS):
             response = await self._api_create()
             total_input_tokens += response.usage.input_tokens
             total_output_tokens += response.usage.output_tokens
+            total_cache_write_tokens += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            total_cache_read_tokens += getattr(response.usage, "cache_read_input_tokens", 0) or 0
             self._history.append({"role": "assistant", "content": response.content})
             self._trim_history()
 
@@ -478,11 +489,16 @@ class HomelabAgent:
 
         cost_usd = (
             total_input_tokens / 1_000_000 * self._input_cost_per_mtok
+            + total_cache_write_tokens / 1_000_000 * self._input_cost_per_mtok * 1.25
+            + total_cache_read_tokens / 1_000_000 * self._input_cost_per_mtok * 0.10
             + total_output_tokens / 1_000_000 * self._output_cost_per_mtok
         )
+        cache_info = ""
+        if total_cache_write_tokens or total_cache_read_tokens:
+            cache_info = f" cache: {total_cache_write_tokens:,}W {total_cache_read_tokens:,}R"
         console.print(
             f"  [dim]Cost: ${cost_usd:.4f} "
-            f"({total_input_tokens:,}↑ {total_output_tokens:,}↓)[/dim]"
+            f"({total_input_tokens:,}↑ {total_output_tokens:,}↓{cache_info})[/dim]"
         )
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
         self._save_history()

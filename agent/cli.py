@@ -292,7 +292,10 @@ async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> Non
         event = await event_queue.get()
         try:
             if event["type"] == "user_message":
-                await agent.chat(event["data"]["message"], trigger="cli:user_message")
+                source = event.get("source", "cli")
+                response = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
+                if source == "slack" and response:
+                    await agent._slack.notify(response)
             else:
                 await agent.handle_event(event)
         except Exception as exc:

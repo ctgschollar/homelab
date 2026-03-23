@@ -406,8 +406,7 @@ async def _post_cost(agent: HomelabAgent, cost_usd: float) -> None:
     if zar_rate is not None:
         total_str += f" / R{cost_usd * zar_rate:.2f}"
     breakdown = agent._last_cost_breakdown
-    msg = f"_Cost breakdown:_\n```{breakdown}```\n_Total: {total_str}_"
-    await agent._slack.notify(msg)
+    await agent._slack.notify(f"_{breakdown}  ({total_str})_")
 
 
 async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> None:

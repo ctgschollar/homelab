@@ -494,16 +494,14 @@ class HomelabAgent:
         output_cost  = total_output_tokens       / 1_000_000 * self._output_cost_per_mtok
         cost_usd     = input_cost + write_cost + read_cost + output_cost
 
-        lines = [
-            f"  input:  ${input_cost:.5f}  ({total_input_tokens:,} tokens)",
-        ]
+        parts = [f"in=${input_cost:.5f}({total_input_tokens:,})"]
         if total_cache_write_tokens:
-            lines.append(f"  cache↑: ${write_cost:.5f}  ({total_cache_write_tokens:,} tokens written)")
+            parts.append(f"cW=${write_cost:.5f}({total_cache_write_tokens:,})")
         if total_cache_read_tokens:
-            lines.append(f"  cache↓: ${read_cost:.5f}  ({total_cache_read_tokens:,} tokens read)")
-        lines.append(f"  output: ${output_cost:.5f}  ({total_output_tokens:,} tokens)")
-        lines.append(f"  total:  ${cost_usd:.5f}")
-        breakdown = "\n".join(lines)
+            parts.append(f"cR=${read_cost:.5f}({total_cache_read_tokens:,})")
+        parts.append(f"out=${output_cost:.5f}({total_output_tokens:,})")
+        parts.append(f"total=${cost_usd:.5f}")
+        breakdown = "  " + "  ".join(parts)
         console.print(f"[dim]{breakdown}[/dim]")
 
         self._last_cost_breakdown = breakdown

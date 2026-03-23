@@ -304,12 +304,14 @@ async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> Non
             if event["type"] == "user_message":
                 source = event.get("source", "cli")
                 response, cost_usd = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
-                if source == "slack" and response:
+                if source == "slack":
+                    if response:
+                        await agent._slack.notify(response)
                     zar_rate = await _fetch_zar_rate()
                     cost_str = f"${cost_usd:.4f}"
                     if zar_rate is not None:
                         cost_str += f" / R{cost_usd * zar_rate:.2f}"
-                    await agent._slack.notify(f"{response}\n\n_Cost: {cost_str}_")
+                    await agent._slack.notify(f"_Cost: {cost_str}_")
             else:
                 await agent.handle_event(event)
         except Exception as exc:

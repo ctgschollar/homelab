@@ -29,7 +29,9 @@ INFRA_CONTEXT = """
 - CoreDNS on port 53 (LAN), port 5353 (Tailscale)
 
 ### Compose Files
-**Edge node:** `192.168.3.91` (FQDN pending — DNS entry not yet created). Runs cloudflared (Cloudflare Tunnel). SSH access via the same key as swarm nodes. Tunnel config lives on this node; check `/etc/cloudflared/` or `~/.cloudflared/` for the config file.
+**Edge node:** `192.168.3.91` (FQDN pending — DNS entry not yet created). Runs two services:
+- **cloudflared** — Cloudflare Tunnel. Config managed by Ansible role at `ansible/roles/cloudflared/`. All public hostnames point to `http://127.0.0.1:80`.
+- **traefik-edge** — local Traefik instance (Docker). Config managed by Ansible role at `ansible/roles/traefik-edge/`. Receives traffic from cloudflared and routes it to the internal swarm Traefik load balancer (`https://192.168.3.71:443`, `https://192.168.3.72:443`). Routes are defined in `traefik_edge_routes` in `defaults/main.yml` and rendered into `http.yml.j2`. All standard routes share a single `internal_traefik_https` service. Services that bypass the swarm Traefik (e.g. the agent approval listener on `dks01:8765`) need their own dedicated service entry and router in `http.yml.j2`.
 
 Compose files live at `/opt/homelab/<stack_name>/docker-compose.yaml`.
 

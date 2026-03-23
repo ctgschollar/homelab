@@ -428,7 +428,7 @@ class HomelabAgent:
         total_output_tokens = 0
         live_to_slack = not trigger.startswith("cli:")
 
-        for _ in range(MAX_ITERATIONS):
+        for iteration in range(MAX_ITERATIONS):
             response = await self._api_create()
             total_input_tokens += response.usage.input_tokens
             total_output_tokens += response.usage.output_tokens
@@ -443,7 +443,13 @@ class HomelabAgent:
                     console.print(label, end="")
                     console.print(block.text)
                     if live_to_slack and block.text.strip():
-                        await self._slack.notify(block.text)
+                        if response.stop_reason == "end_turn":
+                            slack_text = f"✅ {block.text}"
+                        elif iteration == 0:
+                            slack_text = f"📋 {block.text}"
+                        else:
+                            slack_text = f"🔍 {block.text}"
+                        await self._slack.notify(slack_text)
 
             if response.stop_reason == "end_turn":
                 break

@@ -639,6 +639,9 @@ class ToolExecutor:
             sections += ["", f"**Other Tools**", f"{other_tools}"]
         if pitfalls:
             sections += ["", f"**Pitfalls**", f"{pitfalls}"]
+
+        slack_body = "\n".join(sections)
+
         sections += [
             f"",
             f"---",
@@ -671,6 +674,8 @@ class ToolExecutor:
             f'git update-ref refs/remotes/origin/main HEAD'
         )
         git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
+
+        await self._slack.notify(slack_body)
 
         return (
             f"INC-{num:04d} written and committed: `reports/{filename}` "

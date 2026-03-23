@@ -1,0 +1,7 @@
+---
+- name: restart traefik-edge
+  docker_compose:
+    project_src: "{{ traefik_edge_config_dir }}"
+    state: present
+    pull: yes
+    recreate: always

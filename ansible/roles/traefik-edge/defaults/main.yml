@@ -1,0 +1,31 @@
+---
+# Traefik Edge Configuration
+traefik_edge_config_dir: /srv/traefik
+traefik_edge_image: "traefik:v3.1"
+traefik_edge_container_name: "traefik-edge"
+
+# Entry Points
+traefik_edge_web_port: 80
+traefik_edge_websecure_port: 443
+
+# Logging
+traefik_edge_log_level: INFO
+
+# Internal Traefik Load Balancer Targets
+traefik_edge_internal_servers:
+  - "https://192.168.3.71:443"  # dks02
+  - "https://192.168.3.72:443"  # dks03
+  # - "https://192.168.3.73:443"  # dks04 (commented out in original)
+
+# Service Routes
+traefik_edge_routes:
+  - host: "jellyfin.schollar.dev"
+    router_name: "jellyfin_http"
+  - host: "jellyseerr.schollar.dev"
+    router_name: "jellyseerr_http"
+  - host: "excalidraw.schollar.dev"
+    router_name: "excalidraw_http"
+  - host: "excalidraw-room.schollar.dev"
+    router_name: "excalidraw_room_http"
+  - host: "excalidraw-storage.schollar.dev"
+    router_name: "excalidraw_storeage_http"  # Note: keeping original typo for consistency

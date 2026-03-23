@@ -1,0 +1,49 @@
+---
+- name: Create traefik directory
+  file:
+    path: "{{ traefik_edge_config_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Create traefik dynamic config directory
+  file:
+    path: "{{ traefik_edge_config_dir }}/dynamic"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Generate docker-compose.yaml
+  template:
+    src: docker-compose.yaml.j2
+    dest: "{{ traefik_edge_config_dir }}/docker-compose.yaml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart traefik-edge
+
+- name: Generate traefik.yml
+  template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_edge_config_dir }}/traefik.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart traefik-edge
+
+- name: Generate dynamic HTTP configuration
+  template:
+    src: http.yml.j2
+    dest: "{{ traefik_edge_config_dir }}/dynamic/http.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart traefik-edge
+
+- name: Start and enable traefik-edge service
+  docker_compose:
+    project_src: "{{ traefik_edge_config_dir }}"
+    state: present
+    pull: yes

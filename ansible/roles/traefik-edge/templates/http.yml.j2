@@ -1,0 +1,30 @@
+http:
+  routers:
+{% for route in traefik_edge_routes %}
+    {{ route.router_name }}:
+      rule: Host(`{{ route.host }}`)
+      entryPoints: [web]
+      service: internal_traefik_https
+      middlewares: [force_https_proto]
+
+{% endfor %}
+
+  services:
+    internal_traefik_https:
+      loadBalancer:
+        servers:
+{% for server in traefik_edge_internal_servers %}
+          - url: "{{ server }}"
+{% endfor %}
+        passHostHeader: true
+        serversTransport: internal_tls   # <-- inside loadBalancer
+
+  middlewares:
+    force_https_proto:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+  serversTransports:                    # <-- defined under http
+    internal_tls:
+      insecureSkipVerify: true          # (ok for now; tighten later)

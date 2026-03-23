@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  {{ traefik_edge_container_name }}:
+    image: {{ traefik_edge_image }}
+    container_name: {{ traefik_edge_container_name }}
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    restart: unless-stopped
+    ports:
+      - "{{ traefik_edge_web_port }}:80"     # external HTTP passthrough
+      - "{{ traefik_edge_websecure_port }}:443"   # external HTTPS passthrough
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW

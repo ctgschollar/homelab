@@ -1,0 +1,23 @@
+---
+- name: Deploy Traefik Edge Proxy
+  hosts: edge_nodes
+  become: yes
+  roles:
+    - traefik-edge
+  
+  pre_tasks:
+    - name: Ensure Docker is installed
+      package:
+        name: docker.io
+        state: present
+    
+    - name: Ensure Docker Compose is installed
+      package:
+        name: docker-compose
+        state: present
+    
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes

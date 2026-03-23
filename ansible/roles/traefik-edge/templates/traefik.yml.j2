@@ -1,0 +1,18 @@
+entryPoints:
+  web:
+    address: ":{{ traefik_edge_web_port }}"
+  websecure:
+    address: ":{{ traefik_edge_websecure_port }}"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+api:
+  dashboard: false
+
+log:
+  level: {{ traefik_edge_log_level }}
+
+accessLog: {}

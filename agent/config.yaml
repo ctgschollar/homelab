@@ -35,8 +35,7 @@ edge:
 ansible:
   repo_path: "/opt/homelab"
   inventory: "/opt/homelab/ansible/inventory.yml"
-  dev_repo_path: "/home/chris/src/homelab"
-  # GitHub PAT used by the agent to push commits over HTTPS
+  # GitHub PAT used by the agent to commit and push changes over HTTPS
   git_token: "${AGENT_GITHUB_TOKEN}"
   git_author_name: "Homelab Agent"
   git_author_email: "agent@schollar.dev"
@@ -87,6 +86,7 @@ safety:
     slack_notify:            1       # always allowed
     git_pull:                1
     write_incident_report:   1
+    commit_config_updates:   2
     docker_service_scale:    2
     docker_stack_deploy:     2
     docker_stack_rollback:   2
@@ -103,7 +103,7 @@ safety:
 # Incident reports
 # -----------------------------------------------------------------------
 reports:
-  # Path relative to dev_repo_path where reports are saved
+  # Path relative to ansible.repo_path where reports are saved
   path: "reports"
   # Predefined tags — agent must choose from this list
   # Event type (choose one): failure, recovery, deployment, rollback,

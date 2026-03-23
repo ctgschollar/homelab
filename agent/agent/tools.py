@@ -268,14 +268,13 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "git_pull",
         "description": (
-            "Pull the latest changes from the remote into the dev repo at the configured dev_repo_path. "
-            "Uses the configured PAT for HTTPS authentication. "
+            "Pull the latest changes from the remote into /opt/homelab using the PAT. "
             "If the pull succeeds cleanly, returns the git output. "
             "If there are merge conflicts, returns the list of conflicted files and their conflict markers. "
-            "On conflict: read each conflicted file, decide which version is correct "
-            "(incoming remote change vs local agent change), write the resolved file using write_file, "
-            "then call commit_config_updates with message 'resolve merge conflict' to stage and push. "
-            "Never leave a repo in a conflicted state."
+            "On conflict: read each conflicted file, decide which version is correct, "
+            "write the resolved file using write_file, "
+            "then call commit_config_updates to stage and push. "
+            "Never leave the repo in a conflicted state."
         ),
         "input_schema": {
             "type": "object",
@@ -286,10 +285,8 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "name": "commit_config_updates",
         "description": (
-            "Sync config changes made in /opt/homelab back to the dev repo at "
-            "/home/chris/src/homelab, then commit and push as the chris user. "
-            "Use this after editing any file in /opt/homelab so the change is "
-            "persisted in git. Always tier 3 — requires explicit approval."
+            "Commit and push changes made in /opt/homelab using the PAT. "
+            "Use this after editing any file in /opt/homelab so the change is persisted in git."
         ),
         "input_schema": {
             "type": "object",
@@ -297,15 +294,6 @@ TOOL_DEFINITIONS: list[dict] = [
                 "message": {
                     "type": "string",
                     "description": "Git commit message describing what changed.",
-                },
-                "paths": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Optional list of repo-relative paths to sync "
-                        "(e.g. ['jellyseerr/docker-compose.yaml']). "
-                        "If omitted, rsync is used to sync all non-excluded files."
-                    ),
                 },
             },
             "required": ["message"],
@@ -345,7 +333,6 @@ class ToolExecutor:
         self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
-        self._dev_repo_path = config.get("ansible", {}).get("dev_repo_path", "/home/chris/src/homelab")
         self._git_token = config.get("ansible", {}).get("git_token", "")
         self._git_author_name = config.get("ansible", {}).get("git_author_name", "Homelab Agent")
         self._git_author_email = config.get("ansible", {}).get("git_author_email", "agent@schollar.dev")
@@ -354,7 +341,7 @@ class ToolExecutor:
         self._rollback_state_path = Path(rollback_path)
 
         reports_cfg = config.get("reports", {})
-        self._reports_path = Path(self._dev_repo_path) / reports_cfg.get("path", "reports")
+        self._reports_path = Path(self._repo_path) / reports_cfg.get("path", "reports")
         self._action_log_path = Path(config.get("action_log", {}).get("path", "./action.log"))
 
     def _docker_client(self) -> docker.DockerClient:
@@ -644,22 +631,21 @@ class ToolExecutor:
 
         filepath.write_text("\n".join(sections))
 
-        # Commit directly — the file is already in the dev repo, no rsync needed
-        dev = self._dev_repo_path
+        # Commit and push via PAT
+        repo = self._repo_path
         token = self._git_token
         author_name = self._git_author_name
         author_email = self._git_author_email
         git_opts = (
-            f'-c safe.directory="{dev}" '
             f'-c user.name="{author_name}" '
             f'-c user.email="{author_email}"'
         )
         commit_msg = f"incident: INC-{num:04d} {title}"
         git_cmd = (
-            f'cd "{dev}" && '
+            f'cd "{repo}" && '
             f'git {git_opts} add "reports/{filename}" && '
             f'git {git_opts} commit -m "{commit_msg}" && '
-            f'git {git_opts} -c "http.extraHeader=Authorization: token {token}" push'
+            f'git -c "http.extraHeader=Authorization: token {token}" push'
         )
         git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
 
@@ -669,21 +655,21 @@ class ToolExecutor:
         )
 
     async def _tool_git_pull(self, inp: dict) -> str:
-        dev = self._dev_repo_path
+        repo = self._repo_path
         token = self._git_token
-        git_opts = f'-c safe.directory="{dev}" -c "http.extraHeader=Authorization: token {token}"'
-        cmd = f'cd "{dev}" && git {git_opts} pull --no-rebase 2>&1'
+        git_opts = f'-c "http.extraHeader=Authorization: token {token}"'
+        cmd = f'cd "{repo}" && git {git_opts} pull --no-rebase 2>&1'
         result = await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
 
         # Check for conflicts and return conflicted file contents if found
         if "CONFLICT" in result or "Merge conflict" in result:
-            conflicts_cmd = f'cd "{dev}" && git {git_opts} diff --name-only --diff-filter=U'
+            conflicts_cmd = f'cd "{repo}" && git diff --name-only --diff-filter=U'
             conflicted = await self._run_subprocess(["bash", "-c", conflicts_cmd], timeout=10)
             files = [f.strip() for f in conflicted.splitlines() if f.strip()]
             details = [result, "\nConflicted files:"]
             for f in files:
                 try:
-                    content = (Path(dev) / f).read_text()
+                    content = (Path(repo) / f).read_text()
                     details.append(f"\n--- {f} ---\n{content}")
                 except Exception:
                     details.append(f"\n--- {f} --- (could not read)")
@@ -693,43 +679,20 @@ class ToolExecutor:
 
     async def _tool_commit_config_updates(self, inp: dict) -> str:
         message = inp["message"]
-        paths: list[str] | None = inp.get("paths")
-        prod = self._repo_path
-        dev = self._dev_repo_path
+        repo = self._repo_path
         token = self._git_token
         author_name = self._git_author_name
         author_email = self._git_author_email
 
-        if paths:
-            # Sync specific files only
-            copy_cmds: list[str] = []
-            for p in paths:
-                dest_dir = str(Path(dev) / Path(p).parent)
-                copy_cmds += [f'mkdir -p "{dest_dir}"', f'cp "{prod}/{p}" "{dev}/{p}"']
-            sync_cmd = " && ".join(copy_cmds)
-        else:
-            # Full rsync excluding runtime/secret files
-            sync_cmd = (
-                f"rsync -a --exclude='.git' --exclude='*.log' "
-                f"--exclude='rollback_state.json' --exclude='agent_history.json' "
-                f"--exclude='action.log' --exclude='agent/config.yaml' "
-                f'"{prod}/" "{dev}/"'
-            )
-
-        # Commit and push using PAT over HTTPS; no-op if nothing changed
         git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
-        git_cmd = (
-            f'cd "{dev}" && git add -A && '
+        cmd = (
+            f'cd "{repo}" && git add -A && '
             f'git {git_opts} diff --cached --quiet && echo "No changes to commit." || '
             f'(git {git_opts} commit -m "{message}" && '
             f'git -c "http.extraHeader=Authorization: token {token}" push)'
         )
 
-        return await self._run_subprocess(
-            ["bash", "-c", f"{sync_cmd} && {git_cmd}"],
-            timeout=60,
-            stream=True,
-        )
+        return await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
 
     async def _tool_docker_stack_rollback(self, inp: dict) -> str:
         stack_name = inp["stack_name"]

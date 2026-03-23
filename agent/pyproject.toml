@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "homelab-agent"
+version = "0.1.0"
+description = "Autonomous sysadmin agent for Docker Swarm homelab"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40.0",
+    "docker>=7.0.0",
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "pyyaml>=6.0",
+    "ruamel.yaml>=0.18.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+homelab-agent = "cli:main"
+homelab-config = "config_cli:main"
+
+[tool.hatch.build.targets.wheel]
+# Include cli.py and config_cli.py as top-level modules alongside the agent package
+sources = ["."]
+packages = ["agent"]
+include = ["cli.py", "config_cli.py", "config.yaml"]
+
+[tool.hatch.envs.default]
+type = "virtual"
+path = ".venv"
+
+[tool.hatch.envs.default.scripts]
+agent = "python cli.py {args}"
+config = "python config_cli.py {args}"
+check = "python cli.py --check {args}"

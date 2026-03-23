@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(python -m py_compile agent/safety.py agent/prompts.py agent/slack.py agent/tools.py agent/monitor.py config_cli.py)",
+      "Bash(python3 -m py_compile agent/safety.py agent/prompts.py agent/slack.py agent/tools.py agent/monitor.py agent/agent.py cli.py config_cli.py)",
+      "Bash(hatch run:*)"
     ],
     "deny": [],
     "ask": []

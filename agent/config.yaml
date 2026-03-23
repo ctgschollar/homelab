@@ -1,0 +1,96 @@
+anthropic:
+  api_key: "${ANTHROPIC_API_KEY}"
+  model: "claude-sonnet-4-20250514"
+
+slack:
+  webhook_url: "${SLACK_WEBHOOK_URL}"
+  channel: "#homelab-alerts"
+  # How long (seconds) to wait for APPROVE/STOP before a tier-2 plan times out.
+  # Timeout = cancelled, not executed.
+  veto_window_seconds: 300
+
+docker:
+  socket: "unix:///var/run/docker.sock"
+
+swarm:
+  nodes:
+    - dks01.schollar.dev
+    - dks02.schollar.dev
+    - dks03.schollar.dev
+    - dks04.schollar.dev
+    - dks05.schollar.dev
+  ssh_key: "/root/.ssh/ansible_ssh_key"
+  ssh_user: "root"
+
+ansible:
+  repo_path: "/opt/homelab"
+  inventory: "/opt/homelab/ansible/inventory.yml"
+
+monitor:
+  poll_interval: 30
+  watched_stacks:
+    - traefik
+    - monitoring
+    - postgres
+    - coredns
+
+# -----------------------------------------------------------------------
+# Safety policy
+# -----------------------------------------------------------------------
+safety:
+  # Global safe mode. When true, ALL actions behave like tier 3 regardless
+  # of their tool tier tag or the agent's own determination. The agent will
+  # diagnose and propose a plan, post it to Slack, and wait for APPROVE
+  # before executing anything.
+  # Recommended: start with true, disable once you trust the agent's
+  # categorisation.
+  global_safe_mode: true
+
+  # Per-resource safe mode. Any action whose primary target matches a value
+  # in these lists is forced to tier-3 behaviour, even when global_safe_mode
+  # is false. Matched as exact prefix against service name, stack name, or
+  # node hostname.
+  safe_mode_resources:
+    stacks: []       # e.g. ["traefik", "monitoring"]
+    services: []     # e.g. ["traefik_traefik"]
+    nodes: []        # e.g. ["dks01.schollar.dev"]
+
+  # Explicit tier tag per tool. Valid values:
+  #   1       — act immediately, notify Slack after
+  #   2       — post plan to Slack, wait for veto window, then act
+  #   3       — always ask, never act autonomously
+  #   "agent" — agent uses its own judgement (reasoning logged if
+  #             log_agent_tier_reasoning is true)
+  #
+  # These overrides are evaluated after safe mode — safe mode always wins.
+  tool_tiers:
+    docker_service_list:     1       # read-only
+    docker_service_inspect:  1       # read-only
+    read_logs:               1       # read-only
+    read_file:               1       # read-only
+    get_prometheus_alerts:   1       # read-only
+    slack_notify:            1       # always allowed
+    docker_service_scale:    2
+    docker_stack_deploy:     2
+    run_ansible_playbook:    2
+    run_shell:               "agent"
+    write_file:              3
+
+  # When a tool is tagged "agent" and the agent selects a tier, log its
+  # reasoning in the action log. Toggle with: python config_cli.py log-reasoning on|off
+  log_agent_tier_reasoning: true
+
+# -----------------------------------------------------------------------
+# Action log
+# -----------------------------------------------------------------------
+action_log:
+  path: "./action.log"
+
+# -----------------------------------------------------------------------
+# Slack approval listener
+# -----------------------------------------------------------------------
+approval_listener:
+  # aiohttp server that receives Slack outgoing webhook POSTs with
+  # APPROVE <plan_id> or STOP <plan_id>
+  host: "0.0.0.0"
+  port: 8765

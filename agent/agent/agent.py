@@ -333,8 +333,8 @@ class HomelabAgent:
         self._trim_history()
         return await self._run_loop(trigger)
 
-    async def handle_event(self, event: dict) -> None:
-        """Convert a queue event into a user message and run the loop."""
+    async def handle_event(self, event: dict) -> tuple[str, float]:
+        """Convert a queue event into a user message and run the loop. Returns (text, cost_usd)."""
         source = event.get("source", "unknown")
         etype = event.get("type", "")
         data = event.get("data", {})
@@ -358,7 +358,7 @@ class HomelabAgent:
             msg = str(data)
             trigger = f"{source}:{etype}"
 
-        await self.chat(msg, trigger=trigger)
+        return await self.chat(msg, trigger=trigger)
 
     # ------------------------------------------------------------------
     # Agentic loop

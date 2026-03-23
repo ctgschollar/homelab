@@ -297,6 +297,14 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
 # Event consumer task
 # ---------------------------------------------------------------------------
 
+async def _post_cost(agent: HomelabAgent, cost_usd: float) -> None:
+    zar_rate = await _fetch_zar_rate()
+    cost_str = f"${cost_usd:.4f}"
+    if zar_rate is not None:
+        cost_str += f" / R{cost_usd * zar_rate:.2f}"
+    await agent._slack.notify(f"_Cost: {cost_str}_")
+
+
 async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> None:
     while True:
         event = await event_queue.get()
@@ -304,16 +312,13 @@ async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> Non
             if event["type"] == "user_message":
                 source = event.get("source", "cli")
                 response, cost_usd = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
-                if source == "slack":
+                if source != "cli":
                     if response:
                         await agent._slack.notify(response)
-                    zar_rate = await _fetch_zar_rate()
-                    cost_str = f"${cost_usd:.4f}"
-                    if zar_rate is not None:
-                        cost_str += f" / R{cost_usd * zar_rate:.2f}"
-                    await agent._slack.notify(f"_Cost: {cost_str}_")
+                    await _post_cost(agent, cost_usd)
             else:
-                await agent.handle_event(event)
+                _, cost_usd = await agent.handle_event(event)
+                await _post_cost(agent, cost_usd)
         except Exception as exc:
             console.print(f"\n[bold red]Event consumer error:[/bold red] {exc}")
         finally:

@@ -94,6 +94,7 @@ REPL_HELP = """\
 Built-in commands:
   /quit          — exit
   /status        — show current service health
+  /plans         — show plans awaiting approval
   /history       — show conversation turn count
   /safemode      — show current safe mode state (use config_cli.py to change)
   /log           — show all log entries
@@ -206,6 +207,24 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             console.print(REPL_HELP)
         elif line == "/status":
             await run_check(config)
+        elif line == "/plans":
+            active = agent._active_execution
+            plans = agent._pending.all_plans()
+            if not active and not plans:
+                console.print("  [dim]No active or pending plans.[/dim]")
+            else:
+                if active:
+                    age = int((datetime.now(timezone.utc) - active["started_at"]).total_seconds())
+                    console.print(f"  [bold green]Executing:[/bold green] {active['plan_id']}  tool={active['tool']}  running={age}s")
+                    for k, v in active["input"].items():
+                        console.print(f"    [dim]{k}: {v}[/dim]")
+                if plans:
+                    console.print(f"\n  [bold]{len(plans)} plan(s) awaiting approval:[/bold]")
+                    for p in plans:
+                        age = int((datetime.now(timezone.utc) - p["proposed_at"]).total_seconds())
+                        console.print(f"\n  [bold yellow]{p['plan_id']}[/bold yellow]  tier={p['tier']}  tool={p['tool']}  waiting={age}s")
+                        for ln in p["plan_text"].splitlines():
+                            console.print(f"  [dim]{ln}[/dim]")
         elif line == "/history":
             n = len(agent._history)
             console.print(f"History: {n} messages ({n // 2} turn-pairs)")

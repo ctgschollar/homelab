@@ -119,15 +119,23 @@ class PendingApprovals:
     def __init__(self) -> None:
         # future result is (approved: bool, reason: str)
         self._futures: dict[str, asyncio.Future] = {}
+        self._meta: dict[str, dict] = {}  # plan_id -> {tool, plan_text, tier, proposed_at}
 
-    def register(self, plan_id: str) -> asyncio.Future:
+    def register(self, plan_id: str, tool: str, plan_text: str, tier: int) -> asyncio.Future:
         loop = asyncio.get_event_loop()
         fut: asyncio.Future = loop.create_future()
         self._futures[plan_id] = fut
+        self._meta[plan_id] = {
+            "tool": tool,
+            "plan_text": plan_text,
+            "tier": tier,
+            "proposed_at": datetime.now(timezone.utc),
+        }
         return fut
 
     def resolve(self, plan_id: str, approved: bool, reason: str = "") -> bool:
         fut = self._futures.pop(plan_id, None)
+        self._meta.pop(plan_id, None)
         if fut is None or fut.done():
             return False
         fut.set_result((approved, reason))
@@ -142,6 +150,13 @@ class PendingApprovals:
 
     def known_ids(self) -> list[str]:
         return list(self._futures.keys())
+
+    def all_plans(self) -> list[dict]:
+        """Return metadata for all pending plans, oldest first."""
+        return [
+            {"plan_id": pid, **meta}
+            for pid, meta in sorted(self._meta.items(), key=lambda x: x[1]["proposed_at"])
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +276,7 @@ class HomelabAgent:
 
         self._history: list[dict] = []
         self._system_prompt = build_system_prompt()
+        self._active_execution: dict | None = None  # set while a tool is executing
 
     # ------------------------------------------------------------------
     # Public API
@@ -453,7 +469,7 @@ class HomelabAgent:
         else:
             console.print(f"  Type [bold]APPROVE {plan_id}[/bold] or [bold]STOP {plan_id}[/bold] (no timeout)")
 
-        fut = self._pending.register(plan_id)
+        fut = self._pending.register(plan_id, block.name, plan_text, resolved.tier)
         approved: bool
         reason: str
 
@@ -474,7 +490,16 @@ class HomelabAgent:
             return f"[cancelled: {reason}{detail}]"
 
         await self._logger.log_plan_approved(plan_id, block.name)
-        result = await self._tools.execute(block.name, tool_input)
+        self._active_execution = {
+            "plan_id": plan_id,
+            "tool": block.name,
+            "input": {k: v for k, v in tool_input.items() if k not in ("agent_proposed_tier", "agent_reasoning")},
+            "started_at": datetime.now(timezone.utc),
+        }
+        try:
+            result = await self._tools.execute(block.name, tool_input)
+        finally:
+            self._active_execution = None
         await self._logger.log_action_taken(
             tool=block.name,
             tool_input=tool_input,

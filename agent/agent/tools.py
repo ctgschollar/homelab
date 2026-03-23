@@ -255,11 +255,19 @@ TOOL_DEFINITIONS: list[dict] = [
                 },
                 "pitfalls": {
                     "type": "string",
-                    "description": "Dead ends or issues encountered. One sentence. Optional.",
+                    "description": (
+                        "Mistakes, dead ends, or wrong assumptions made during the incident. "
+                        "REQUIRED if any plans were rejected — include the agent's flawed reasoning "
+                        "and what should have been done instead. One paragraph."
+                    ),
                 },
                 "start_time": {
                     "type": "string",
-                    "description": "ISO8601 timestamp of when the incident started, for action log slicing.",
+                    "description": (
+                        "ISO8601 timestamp for action log slicing. "
+                        "Use the time the triggering event was first received (today's date). "
+                        "Shell commands and rejected plans are extracted automatically from this window."
+                    ),
                 },
             },
             "required": ["title", "tags", "inciting_incident", "resolution", "tools_used", "start_time"],
@@ -613,6 +621,16 @@ class ToolExecutor:
         log_entries = self._slice_action_log(start_time)
         log_json = json.dumps(log_entries, indent=2) if log_entries else "[]"
 
+        # Auto-extract shell commands and rejected plans from the log slice
+        shell_commands = [
+            e for e in log_entries
+            if e.get("event") == "action_taken" and e.get("tool") == "run_shell"
+        ]
+        rejected_plans = [
+            e for e in log_entries
+            if e.get("event") == "plan_cancelled"
+        ]
+
         now = datetime.now(timezone.utc).isoformat()
         tags_str = ", ".join(tags)
         tools_str = ", ".join(f"`{t}`" for t in tools_used)
@@ -631,10 +649,31 @@ class ToolExecutor:
             f"",
             f"**Resolution**",
             f"{resolution}",
-            f"",
-            f"**Tools Used**",
-            f"{tools_str}",
         ]
+
+        if shell_commands:
+            sections += ["", f"**Shell Commands Run**"]
+            for e in shell_commands:
+                inp = e.get("input", {})
+                cmd = inp.get("command", "")
+                node = inp.get("node", "local")
+                tier = e.get("tier", "?")
+                outcome_preview = (e.get("outcome", "") or "")[:120].replace("\n", " ")
+                sections.append(f"- `{cmd}` on `{node}` (tier {tier}) → {outcome_preview}")
+
+        if rejected_plans:
+            sections += ["", f"**Rejected Plans**"]
+            for i, e in enumerate(rejected_plans, 1):
+                inp = e.get("input", {})
+                cmd = inp.get("command", "")
+                node = inp.get("node", "")
+                reason = e.get("reason", "")
+                agent_reasoning = inp.get("agent_reasoning", "")
+                sections.append(f"{i}. Command: `{cmd}` on `{node}`")
+                sections.append(f"   Agent reasoning: {agent_reasoning}")
+                sections.append(f"   Rejected: _{reason}_")
+
+        sections += ["", f"**Tools Used**", f"{tools_str}"]
         if other_tools:
             sections += ["", f"**Other Tools**", f"{other_tools}"]
         if pitfalls:

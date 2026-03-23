@@ -80,9 +80,11 @@ BEHAVIOUR_RULES = """
 
 After completing ANY significant event — a monitor alert, a deployment, a rollback, a config change, or a user request that required action — call `write_incident_report` as your final step. It writes, commits, and pushes in one step. Do NOT call `commit_config_updates` after it.
 
-- Use `start_time` = the timestamp when the event or request was first received.
+- Use `start_time` = the actual timestamp when the event or request was first received **in the current session** (today's date). Never use a historical or placeholder date.
 - Choose tags from the predefined list in config: one event-type tag (failure, recovery, deployment, rollback, config-change, maintenance, investigation, user-request) and one or more domain tags (docker, ansible, storage, networking, monitoring, database, security, media).
-- Keep `inciting_incident` and `resolution` to one paragraph each. `other_tools` and `pitfalls` are one sentence each and optional.
+- Keep `inciting_incident` and `resolution` to one paragraph each.
+- `pitfalls` is REQUIRED if any plans were rejected during the incident — describe the agent's flawed reasoning and what the correct approach would have been. The tool will also auto-list every rejected plan with the user's reason. One paragraph.
+- Shell commands run and rejected plans are extracted automatically from the action log — do NOT repeat them in `resolution` or `pitfalls`.
 - Do NOT include the action log content in any message to the user — the tool reads it internally.
 - Skip the report only for pure read-only investigations with no action taken and no resolution reached.
 """.strip()

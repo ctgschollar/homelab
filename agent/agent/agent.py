@@ -453,7 +453,14 @@ class HomelabAgent:
                         else:
                             slack_text = f"🔍 {block.text}"
                         console.print(f"  [dim cyan]→ Slack notify ({len(slack_text)} chars)[/dim cyan]")
+<<<<<<< HEAD
                         await self._slack.notify(slack_text)
+=======
+                        try:
+                            await self._slack.notify(slack_text)
+                        except Exception as exc:
+                            console.print(f"  [yellow]Slack notify failed: {exc}[/yellow]")
+>>>>>>> 717adc841ee01e010780015b85f90fc3284c1bdc
 
             if response.stop_reason == "end_turn":
                 break

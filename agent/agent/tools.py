@@ -249,7 +249,8 @@ class ToolExecutor:
         self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
-        rollback_path = config.get("rollback", {}).get("state_path", "./rollback_state.json")
+        default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
+        rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
         self._rollback_state_path = Path(rollback_path)
 
     def _docker_client(self) -> docker.DockerClient:
@@ -432,13 +433,12 @@ class ToolExecutor:
         # Snapshot current images before deploying for rollback
         loop = asyncio.get_event_loop()
         snapshot = await loop.run_in_executor(None, self._snapshot_stack_images, stack_name)
-        if snapshot:
-            state = self._load_rollback_state()
-            state[stack_name] = {
-                "services": snapshot,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            self._save_rollback_state(state)
+        state = self._load_rollback_state()
+        state[stack_name] = {
+            "services": snapshot,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self._save_rollback_state(state)
 
         return await self._run_subprocess([
             "docker", "stack", "deploy",

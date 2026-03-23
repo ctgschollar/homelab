@@ -501,7 +501,7 @@ class ToolExecutor:
         dev = self._dev_repo_path
         token = self._git_token
         git_opts = f'-c safe.directory="{dev}" -c "http.extraHeader=Authorization: token {token}"'
-        cmd = f'cd "{dev}" && git {git_opts} pull 2>&1'
+        cmd = f'cd "{dev}" && git {git_opts} pull --no-rebase 2>&1'
         result = await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
 
         # Check for conflicts and return conflicted file contents if found

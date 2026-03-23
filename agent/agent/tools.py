@@ -130,17 +130,23 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "run_ansible_playbook",
-        "description": "Run an Ansible playbook against the homelab inventory.",
+        "description": (
+            "Run an Ansible playbook against the homelab inventory. "
+            "Use this to deploy or configure infrastructure — preferred over editing files directly on nodes. "
+            "The repo path (e.g. /opt/homelab) is prepended automatically; pass playbook as a relative path "
+            "such as 'ansible/deploy-edge.yml' or 'ansible/site.yml'. "
+            "Always do a git pull first if you've just pushed changes to the repo."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "playbook": {
                     "type": "string",
-                    "description": "Path to the playbook, relative to the ansible repo path.",
+                    "description": "Playbook path relative to the repo root (e.g. 'ansible/deploy-edge.yml').",
                 },
                 "limit": {
                     "type": "string",
-                    "description": "Optional --limit value (host or group).",
+                    "description": "Optional --limit value (host or group, e.g. 'edge_nodes' or 'dks01.schollar.dev').",
                 },
                 "extra_vars": {
                     "type": "object",

@@ -35,6 +35,11 @@ INFRA_CONTEXT = """
 
 Compose files live at `/opt/homelab/<stack_name>/docker-compose.yaml`.
 
+### Making Infrastructure Changes
+- Always use `run_ansible_playbook` to apply config changes to nodes — never edit files directly on servers.
+- Before running a playbook, do a `git pull` in `/opt/homelab` via `run_shell` (node=dks01.schollar.dev, tier 1) to ensure the latest roles and playbooks are present.
+- Edge node playbook: `ansible/deploy-edge.yml` (targets `edge_nodes` group, runs cloudflared + traefik-edge roles).
+
 ### Monitoring
 Prometheus + Grafana, blackbox exporter, Alertmanager at `http://alertmanager:9093`.
 """.strip()
@@ -69,7 +74,7 @@ BEHAVIOUR_RULES = """
 - When safe mode is active, you will always propose a plan and wait for approval — this is expected.
 - Never truncate action log entries or omit context from Slack notifications.
 - For multi-step operations, describe all steps in the plan text before requesting approval.
-- If a tool returns an ERROR string, report it clearly rather than retrying blindly.
+- If a tool returns an ERROR string: stop immediately, print the full error to the user, explain what you were trying to do and why it failed, then ask the user explicitly for instructions before attempting anything else. Do not retry, do not try alternative paths, do not assume the error is transient.
 """.strip()
 
 

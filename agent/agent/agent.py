@@ -403,6 +403,13 @@ class HomelabAgent:
             res = await self._handle_approval_flow(block, resolved, trigger)
             results[block.id] = res
 
+        # Print errors prominently before returning to the loop
+        for b in tool_use_blocks:
+            res = results.get(b.id, "ERROR: result missing")
+            if res.startswith("ERROR:"):
+                console.print(f"\n  [bold red]Tool error ({b.name}):[/bold red] {res}")
+                console.print("  [dim]Waiting for agent to report and ask for instructions...[/dim]\n")
+
         # Reconstruct in original order
         return [
             {

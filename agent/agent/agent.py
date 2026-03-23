@@ -198,18 +198,18 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
 
                 approved = action_id == "plan_approve"
 
-                # Cache the channel, ts, and plan_text so we can update after modal submit
-                channel = payload.get("channel", {}).get("id", "")
-                ts = payload.get("message", {}).get("ts", "")
-                if channel and ts:
-                    _message_cache[plan_id] = (channel, ts, plan_text)
-
                 # Find the plan_text from the original message for the modal
                 plan_text = ""
                 for block in payload.get("message", {}).get("blocks", []):
                     if block.get("type") == "section":
                         plan_text = block.get("text", {}).get("text", "")
                         break
+
+                # Cache channel, ts, and plan_text so we can update after modal submit
+                channel = payload.get("channel", {}).get("id", "")
+                ts = payload.get("message", {}).get("ts", "")
+                if channel and ts:
+                    _message_cache[plan_id] = (channel, ts, plan_text)
 
                 trigger_id = payload.get("trigger_id", "")
                 modal = slack._approval_modal(plan_id, plan_text, approved)

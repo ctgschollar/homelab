@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from rich.console import Console
@@ -346,6 +347,8 @@ class HomelabAgent:
         self._history_path = Path(history_path)
         self._history: list[dict] = self._load_history()
         self._last_cost_breakdown: str = ""
+        self._zar_rate: float | None = None
+        self._zar_rate_fetched_at: datetime | None = None
         self._system_prompt = build_system_prompt()
         self._active_execution: dict | None = None  # set while a tool is executing
 
@@ -494,13 +497,24 @@ class HomelabAgent:
         output_cost  = total_output_tokens       / 1_000_000 * self._output_cost_per_mtok
         cost_usd     = input_cost + write_cost + read_cost + output_cost
 
-        parts = [f"in=${input_cost:.5f}({total_input_tokens:,})"]
+        zar = await self._get_zar_rate()
+
+        def fmt(usd: float, tokens: int) -> str:
+            s = f"${usd:.5f}"
+            if zar:
+                s += f"/R{usd * zar:.4f}"
+            return f"{s}({tokens:,})"
+
+        parts = [f"in={fmt(input_cost, total_input_tokens)}"]
         if total_cache_write_tokens:
-            parts.append(f"cW=${write_cost:.5f}({total_cache_write_tokens:,})")
+            parts.append(f"cW={fmt(write_cost, total_cache_write_tokens)}")
         if total_cache_read_tokens:
-            parts.append(f"cR=${read_cost:.5f}({total_cache_read_tokens:,})")
-        parts.append(f"out=${output_cost:.5f}({total_output_tokens:,})")
-        parts.append(f"total=${cost_usd:.5f}")
+            parts.append(f"cR={fmt(read_cost, total_cache_read_tokens)}")
+        parts.append(f"out={fmt(output_cost, total_output_tokens)}")
+        total_str = f"${cost_usd:.5f}"
+        if zar:
+            total_str += f"/R{cost_usd * zar:.4f}"
+        parts.append(f"total={total_str}")
         breakdown = "  " + "  ".join(parts)
         console.print(f"[dim]{breakdown}[/dim]")
 
@@ -699,6 +713,21 @@ class HomelabAgent:
             console.print(f"  [bold yellow]  [SAFE MODE — tier forced to 3, {original}][/bold yellow]")
         if resolved.agent_reasoning:
             console.print(f"  [dim italic]  tier reasoning: {resolved.agent_reasoning}[/dim italic]")
+
+    async def _get_zar_rate(self) -> float | None:
+        now = datetime.now(timezone.utc)
+        if self._zar_rate is not None and self._zar_rate_fetched_at is not None:
+            age = (now - self._zar_rate_fetched_at).total_seconds()
+            if age < 3600:
+                return self._zar_rate
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get("https://api.frankfurter.app/latest?from=USD&to=ZAR")
+                self._zar_rate = resp.json()["rates"]["ZAR"]
+                self._zar_rate_fetched_at = now
+        except Exception:
+            pass
+        return self._zar_rate
 
     def _load_history(self) -> list[dict]:
         if self._history_path.exists():

@@ -22,6 +22,7 @@
     mode: '0644'
     owner: root
     group: root
+    backup: yes
   notify: restart traefik-edge
 
 - name: Generate traefik.yml
@@ -31,6 +32,7 @@
     mode: '0644'
     owner: root
     group: root
+    backup: yes
   notify: restart traefik-edge
 
 - name: Generate dynamic HTTP configuration
@@ -40,6 +42,7 @@
     mode: '0644'
     owner: root
     group: root
+    backup: yes
   notify: restart traefik-edge
 
 - name: Start and enable traefik-edge service

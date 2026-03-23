@@ -270,11 +270,19 @@ class ToolExecutor:
                     line = raw.decode(errors="replace").rstrip()
                     lines.append(line)
                     _console.print(f"  [dim]│ {line}[/dim]")
-            await asyncio.wait_for(_read(), timeout=timeout)
-            await proc.wait()
+            try:
+                await asyncio.wait_for(_read(), timeout=timeout)
+                await proc.wait()
+            except asyncio.TimeoutError:
+                proc.kill()
+                return f"ERROR: command timed out after {timeout}s"
             return "\n".join(lines)
 
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return f"ERROR: command timed out after {timeout}s"
         return stdout.decode().strip()
 
     # ------------------------------------------------------------------
@@ -409,7 +417,7 @@ class ToolExecutor:
         else:
             args = ["bash", "-c", command]
 
-        return await self._run_subprocess(args, stream=True)
+        return await self._run_subprocess(args, timeout=300, stream=True)
 
     async def _tool_get_prometheus_alerts(self, inp: dict) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:

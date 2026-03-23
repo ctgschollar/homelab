@@ -431,7 +431,17 @@ class HomelabAgent:
                 break
 
             if response.stop_reason == "tool_use":
-                tool_results = await self._handle_tool_calls(response.content, trigger)
+                try:
+                    tool_results = await self._handle_tool_calls(response.content, trigger)
+                except Exception as exc:
+                    # Always append error tool_results to keep history valid.
+                    # An unmatched tool_use block corrupts all subsequent API calls.
+                    # Continuing the loop lets the agent see the error and respond.
+                    tool_results = [
+                        {"type": "tool_result", "tool_use_id": b.id, "content": f"ERROR: {exc}"}
+                        for b in response.content
+                        if hasattr(b, "type") and b.type == "tool_use"
+                    ]
                 self._history.append({"role": "user", "content": tool_results})
                 self._trim_history()
 

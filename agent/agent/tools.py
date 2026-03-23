@@ -626,8 +626,14 @@ class ToolExecutor:
             e for e in log_entries
             if e.get("event") == "action_taken" and e.get("tool") == "run_shell"
         ]
+        # Join plan_cancelled with matching plan_proposed to recover the original command
+        proposed_by_id: dict[str, dict] = {
+            e["plan_id"]: e for e in log_entries
+            if e.get("event") == "plan_proposed" and "plan_id" in e
+        }
         rejected_plans = [
-            e for e in log_entries
+            {**proposed_by_id.get(e.get("plan_id", ""), {}), **e}
+            for e in log_entries
             if e.get("event") == "plan_cancelled"
         ]
 
@@ -635,13 +641,8 @@ class ToolExecutor:
         tags_str = ", ".join(tags)
         tools_str = ", ".join(f"`{t}`" for t in tools_used)
 
-        sections = [
-            f"---",
-            f"tags: [{tags_str}]",
-            f"incident: INC-{num:04d}",
-            f"date: {now}",
-            f"---",
-            f"",
+        # Narrative sections — go into both the file and Slack
+        narrative: list[str] = [
             f"# INC-{num:04d}: {title}",
             f"",
             f"**Inciting Incident**",
@@ -651,35 +652,46 @@ class ToolExecutor:
             f"{resolution}",
         ]
 
-        if shell_commands:
-            sections += ["", f"**Shell Commands Run**"]
-            for e in shell_commands:
-                inp = e.get("input", {})
-                cmd = inp.get("command", "")
-                node = inp.get("node", "local")
-                tier = e.get("tier", "?")
-                outcome_preview = (e.get("outcome", "") or "")[:120].replace("\n", " ")
-                sections.append(f"- `{cmd}` on `{node}` (tier {tier}) → {outcome_preview}")
-
         if rejected_plans:
-            sections += ["", f"**Rejected Plans**"]
+            narrative += ["", f"**Rejected Plans**"]
             for i, e in enumerate(rejected_plans, 1):
                 inp = e.get("input", {})
                 cmd = inp.get("command", "")
                 node = inp.get("node", "")
                 reason = e.get("reason", "")
                 agent_reasoning = inp.get("agent_reasoning", "")
-                sections.append(f"{i}. Command: `{cmd}` on `{node}`")
-                sections.append(f"   Agent reasoning: {agent_reasoning}")
-                sections.append(f"   Rejected: _{reason}_")
+                narrative.append(f"{i}. `{cmd}` on `{node}`")
+                narrative.append(f"   _Agent reasoning:_ {agent_reasoning}")
+                narrative.append(f"   _Rejected:_ {reason}")
 
-        sections += ["", f"**Tools Used**", f"{tools_str}"]
+        narrative += ["", f"**Tools Used**", f"{tools_str}"]
         if other_tools:
-            sections += ["", f"**Other Tools**", f"{other_tools}"]
+            narrative += ["", f"**Other Tools**", f"{other_tools}"]
         if pitfalls:
-            sections += ["", f"**Pitfalls**", f"{pitfalls}"]
+            narrative += ["", f"**Pitfalls**", f"{pitfalls}"]
 
-        slack_body = "\n".join(sections)
+        slack_body = "\n".join(narrative)
+
+        # Shell commands section — file only, not Slack
+        shell_section: list[str] = []
+        if shell_commands:
+            shell_section += ["", f"**Shell Commands Run**"]
+            for e in shell_commands:
+                cmd_inp = e.get("input", {})
+                cmd = cmd_inp.get("command", "")
+                node = cmd_inp.get("node", "local")
+                tier = e.get("tier", "?")
+                outcome_preview = (e.get("outcome", "") or "")[:120].replace("\n", " ")
+                shell_section.append(f"- `{cmd}` on `{node}` (tier {tier}) → {outcome_preview}")
+
+        sections = [
+            f"---",
+            f"tags: [{tags_str}]",
+            f"incident: INC-{num:04d}",
+            f"date: {now}",
+            f"---",
+            f"",
+        ] + narrative + shell_section
 
         sections += [
             f"",

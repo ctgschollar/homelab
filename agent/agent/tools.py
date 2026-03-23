@@ -570,6 +570,9 @@ class ToolExecutor:
             start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
         except ValueError:
             return []
+        # Ensure start_dt is timezone-aware so comparisons with UTC log timestamps work
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
         entries: list[dict] = []
         try:
             with open(self._action_log_path) as f:
@@ -582,9 +585,11 @@ class ToolExecutor:
                         ts_str = entry.get("ts", "")
                         if ts_str:
                             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
                             if ts >= start_dt:
                                 entries.append(entry)
-                    except (json.JSONDecodeError, ValueError):
+                    except (json.JSONDecodeError, ValueError, TypeError):
                         pass
         except FileNotFoundError:
             pass

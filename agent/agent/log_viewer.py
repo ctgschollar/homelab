@@ -129,6 +129,6 @@ class LogBrowser(App):
         self.exit()
 
 
-def browse_log(entries: list[tuple[datetime | None, dict]]) -> None:
+async def browse_log(entries: list[tuple[datetime | None, dict]]) -> None:
     """Launch the interactive log browser. Blocks until the user quits."""
-    LogBrowser(entries).run()
+    await LogBrowser(entries).run_async()

@@ -142,7 +142,7 @@ def _parse_log_range(args: list[str]) -> tuple[datetime | None, datetime | None]
     return None, None
 
 
-def show_log(log_path: str, args: list[str]) -> None:
+async def show_log(log_path: str, args: list[str]) -> None:
     start, end = _parse_log_range(args)
 
     if args and start is None and end is None:
@@ -182,7 +182,7 @@ def show_log(log_path: str, args: list[str]) -> None:
         console.print("  [dim]No log entries for that range.[/dim]")
         return
 
-    browse_log(entries)
+    await browse_log(entries)
 
 
 async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue, log_path: str) -> None:
@@ -215,7 +215,7 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             console.print("Use [cyan]python config_cli.py safemode on|off[/cyan] to change.")
         elif upper.startswith("/LOG"):
             log_args = line.split()[1:]
-            show_log(log_path, log_args)
+            await show_log(log_path, log_args)
         elif upper.startswith("APPROVE ") or upper.startswith("STOP "):
             command, _, plan_id = line.partition(" ")
             plan_id = plan_id.strip().lower()

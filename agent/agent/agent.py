@@ -110,6 +110,21 @@ class ActionLogger:
             "effective_tier": effective_tier,
         })
 
+    async def log_cost(
+        self,
+        cost_usd: float,
+        input_tokens: int,
+        output_tokens: int,
+        trigger: str,
+    ) -> None:
+        await self.log({
+            "event": "api_cost",
+            "cost_usd": cost_usd,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "trigger": trigger,
+        })
+
 
 # ---------------------------------------------------------------------------
 # Pending Approvals
@@ -421,6 +436,7 @@ class HomelabAgent:
             f"  [dim]Cost: ${cost_usd:.4f} "
             f"({total_input_tokens:,}↑ {total_output_tokens:,}↓)[/dim]"
         )
+        await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
         return final_text, cost_usd
 
     async def _handle_tool_calls(

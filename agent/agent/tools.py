@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -265,12 +265,12 @@ TOOL_DEFINITIONS: list[dict] = [
                     "type": "string",
                     "description": (
                         "ISO8601 timestamp for action log slicing. "
-                        "Use the time the triggering event was first received (today's date). "
-                        "Shell commands and rejected plans are extracted automatically from this window."
+                        "Best-effort — the tool will correct obviously wrong dates using the server clock. "
+                        "Pass the time the triggering event was first received."
                     ),
                 },
             },
-            "required": ["title", "tags", "inciting_incident", "resolution", "tools_used", "start_time"],
+            "required": ["title", "tags", "inciting_incident", "resolution", "tools_used"],
         },
     },
     {
@@ -610,7 +610,19 @@ class ToolExecutor:
         tools_used = inp["tools_used"]
         other_tools = inp.get("other_tools", "")
         pitfalls = inp.get("pitfalls", "")
-        start_time = inp["start_time"]
+        now_utc = datetime.now(timezone.utc)
+        raw_start = inp.get("start_time", "")
+        start_time = raw_start
+        # Correct hallucinated/missing start times: if not parseable or more than
+        # 24 hours in the past or in the future, fall back to 4 hours ago.
+        try:
+            parsed = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if abs((now_utc - parsed).total_seconds()) > 86400:
+                start_time = (now_utc - timedelta(hours=4)).isoformat()
+        except (ValueError, AttributeError):
+            start_time = (now_utc - timedelta(hours=4)).isoformat()
 
         num = self._next_incident_number()
         slug = title.lower().replace(" ", "-").replace("/", "-")

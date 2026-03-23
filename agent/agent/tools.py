@@ -709,9 +709,11 @@ class ToolExecutor:
         git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
         cmd = (
             f'cd "{repo}" && git add -A && '
-            f'git {git_opts} diff --cached --quiet && echo "No changes to commit." || '
-            f'(git {git_opts} commit -m "{message}" && '
-            f'git push "{remote_url}")'
+            f'if git {git_opts} diff --cached --quiet; then '
+            f'echo "No changes to commit."; '
+            f'else '
+            f'git {git_opts} commit -m "{message}" && git push "{remote_url}"; '
+            f'fi'
         )
 
         return await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)

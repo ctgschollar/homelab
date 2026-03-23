@@ -4,6 +4,9 @@ from typing import Any
 
 import docker
 import httpx
+from rich.console import Console
+
+_console = Console()
 
 
 # ---------------------------------------------------------------------------
@@ -245,16 +248,29 @@ class ToolExecutor:
         args: list[str],
         timeout: int = 60,
         cwd: str | None = None,
+        stream: bool = False,
     ) -> str:
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
             cwd=cwd,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        out = stdout.decode() + stderr.decode()
-        return out.strip()
+
+        if stream:
+            lines: list[str] = []
+            async def _read() -> None:
+                assert proc.stdout is not None
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").rstrip()
+                    lines.append(line)
+                    _console.print(f"  [dim]│ {line}[/dim]")
+            await asyncio.wait_for(_read(), timeout=timeout)
+            await proc.wait()
+            return "\n".join(lines)
+
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode().strip()
 
     # ------------------------------------------------------------------
     # Tool implementations
@@ -370,7 +386,7 @@ class ToolExecutor:
         if extra_vars:
             cmd += ["-e", json.dumps(extra_vars)]
 
-        return await self._run_subprocess(cmd, timeout=300, cwd=self._repo_path)
+        return await self._run_subprocess(cmd, timeout=300, cwd=self._repo_path, stream=True)
 
     async def _tool_run_shell(self, inp: dict) -> str:
         command = inp["command"]
@@ -388,7 +404,7 @@ class ToolExecutor:
         else:
             args = ["bash", "-c", command]
 
-        return await self._run_subprocess(args)
+        return await self._run_subprocess(args, stream=True)
 
     async def _tool_get_prometheus_alerts(self, inp: dict) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:

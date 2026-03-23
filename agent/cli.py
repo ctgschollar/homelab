@@ -320,6 +320,27 @@ async def amain(args: argparse.Namespace) -> None:
     listener_host = listener_cfg.get("host", "0.0.0.0")
     listener_port = int(listener_cfg.get("port", 8765))
 
+    # Slack test mode
+    if args.test_slack:
+        if not agent._slack.configured:
+            console.print("[bold red]Slack is not configured — set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET.[/bold red]")
+            return
+        listener_task = await agent.start_approval_listener(listener_host, listener_port)
+        console.print(f"[dim]Approval listener up on {listener_host}:{listener_port}[/dim]")
+        plan_id = "test-plan"
+        plan_text = "*Tool:* `slack_test`\n*Inputs:*\n  message: This is a test plan from the homelab agent."
+        fut = agent._pending.register(plan_id, "slack_test", plan_text, tier=3)
+        await agent._slack.notify_plan(plan_id, plan_text, veto_seconds=None)
+        console.print(f"  Test plan [bold yellow]{plan_id}[/bold yellow] posted to Slack — waiting for Approve/Deny…")
+        approved, reason = await fut
+        if approved:
+            console.print(f"  [bold green]Approved![/bold green] reason: {reason or '(none)'}")
+        else:
+            console.print(f"  [bold red]Denied.[/bold red] reason: {reason or '(none)'}")
+        listener_task.cancel()
+        await agent.aclose()
+        return
+
     # Single message mode
     if args.message:
         consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
@@ -361,6 +382,8 @@ def main() -> None:
     parser.add_argument("message", nargs="?", help="Single question/command (non-interactive mode)")
     parser.add_argument("--daemon", action="store_true", help="Run headlessly as a monitor daemon")
     parser.add_argument("--check", action="store_true", help="Print service status and exit")
+    parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
+    parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     args = parser.parse_args()
 

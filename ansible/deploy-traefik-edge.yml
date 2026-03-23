@@ -13,7 +13,7 @@
     
     - name: Ensure Docker Compose is installed
       package:
-        name: docker-compose
+        name: docker-compose-v2
         state: present
     
     - name: Start Docker service

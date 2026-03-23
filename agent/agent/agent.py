@@ -426,6 +426,7 @@ class HomelabAgent:
         final_text = ""
         total_input_tokens = 0
         total_output_tokens = 0
+        live_to_slack = not trigger.startswith("cli:")
 
         for _ in range(MAX_ITERATIONS):
             response = await self._api_create()
@@ -434,13 +435,15 @@ class HomelabAgent:
             self._history.append({"role": "assistant", "content": response.content})
             self._trim_history()
 
-            # Print text blocks
+            # Print text blocks and stream to Slack for non-CLI triggers
             for block in response.content:
                 if block.type == "text":
                     final_text = block.text
                     label = Text("Agent: ", style="bold cyan")
                     console.print(label, end="")
                     console.print(block.text)
+                    if live_to_slack and block.text.strip():
+                        await self._slack.notify(block.text)
 
             if response.stop_reason == "end_turn":
                 break
@@ -469,7 +472,9 @@ class HomelabAgent:
             f"({total_input_tokens:,}↑ {total_output_tokens:,}↓)[/dim]"
         )
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
-        return final_text, cost_usd
+        # Return empty string when we've already live-posted all text to Slack,
+        # so event_consumer doesn't post the final message a second time.
+        return ("" if live_to_slack else final_text), cost_usd
 
     async def _handle_tool_calls(
         self,

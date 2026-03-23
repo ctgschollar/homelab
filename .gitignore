@@ -26,6 +26,11 @@ Thumbs.db
 # Logs
 *.log
 
+# Agent runtime state
+agent/agent_history.json
+agent/rollback_state.json
+agent/action.log
+
 # Python
 __pycache__/
 *.py[cod]

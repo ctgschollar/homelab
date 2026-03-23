@@ -75,6 +75,16 @@ BEHAVIOUR_RULES = """
 - Never truncate action log entries or omit context from Slack notifications.
 - For multi-step operations, describe all steps in the plan text before requesting approval.
 - If a tool returns an ERROR string: stop immediately, print the full error to the user, explain what you were trying to do and why it failed, then ask the user explicitly for instructions before attempting anything else. Do not retry, do not try alternative paths, do not assume the error is transient.
+
+## Incident Reports
+
+After completing ANY significant event — a monitor alert, a deployment, a rollback, a config change, or a user request that required action — call `write_incident_report` as your final step, then `commit_config_updates` to persist it.
+
+- Use `start_time` = the timestamp when the event or request was first received.
+- Choose tags from the predefined list in config: one event-type tag (failure, recovery, deployment, rollback, config-change, maintenance, investigation, user-request) and one or more domain tags (docker, ansible, storage, networking, monitoring, database, security, media).
+- Keep `inciting_incident` and `resolution` to one paragraph each. `other_tools` and `pitfalls` are one sentence each and optional.
+- Do NOT include the action log content in any message to the user — the tool reads it internally.
+- Skip the report only for pure read-only investigations with no action taken and no resolution reached.
 """.strip()
 
 

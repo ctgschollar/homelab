@@ -216,6 +216,56 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "write_incident_report",
+        "description": (
+            "Write a structured incident report to the reports directory and return a Slack-ready summary. "
+            "Use this as the FINAL action for any completed event — service failures, deployments, "
+            "config changes, user requests, investigations. "
+            "The tool reads the action log internally for the given time window — do NOT pass log content yourself. "
+            "After calling this, call commit_config_updates to push the report to the repo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short descriptive title, 4-6 words (used in filename), e.g. 'jellyseerr-upgrade-to-seerr-failed'.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags from the predefined list in config. Choose one event-type tag and one or more domain tags.",
+                },
+                "inciting_incident": {
+                    "type": "string",
+                    "description": "What triggered this event. One paragraph.",
+                },
+                "resolution": {
+                    "type": "string",
+                    "description": "What was done to resolve or complete it, including key commands. One paragraph.",
+                },
+                "tools_used": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Agent tool names used (e.g. ['docker_service_inspect', 'docker_stack_deploy']).",
+                },
+                "other_tools": {
+                    "type": "string",
+                    "description": "Other tools used outside the agent (git, ansible, python). One sentence. Optional.",
+                },
+                "pitfalls": {
+                    "type": "string",
+                    "description": "Dead ends or issues encountered. One sentence. Optional.",
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "ISO8601 timestamp of when the incident started, for action log slicing.",
+                },
+            },
+            "required": ["title", "tags", "inciting_incident", "resolution", "tools_used", "start_time"],
+        },
+    },
+    {
         "name": "git_pull",
         "description": (
             "Pull the latest changes from the remote into the dev repo at the configured dev_repo_path. "
@@ -302,6 +352,10 @@ class ToolExecutor:
         default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
         rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
         self._rollback_state_path = Path(rollback_path)
+
+        reports_cfg = config.get("reports", {})
+        self._reports_path = Path(self._dev_repo_path) / reports_cfg.get("path", "reports")
+        self._action_log_path = Path(config.get("action_log", {}).get("path", "./action.log"))
 
     def _docker_client(self) -> docker.DockerClient:
         return docker.DockerClient(base_url=self._docker_socket)
@@ -496,6 +550,104 @@ class ToolExecutor:
             "-c", compose_path,
             stack_name,
         ])
+
+    def _next_incident_number(self) -> int:
+        self._reports_path.mkdir(parents=True, exist_ok=True)
+        highest = 0
+        for f in self._reports_path.glob("INC-*.md"):
+            try:
+                num = int(f.name.split("-")[1])
+                highest = max(highest, num)
+            except (IndexError, ValueError):
+                pass
+        return highest + 1
+
+    def _slice_action_log(self, start_time: str) -> list[dict]:
+        try:
+            start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            return []
+        entries: list[dict] = []
+        try:
+            with open(self._action_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        ts_str = entry.get("ts", "")
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts >= start_dt:
+                                entries.append(entry)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+        except FileNotFoundError:
+            pass
+        return entries
+
+    async def _tool_write_incident_report(self, inp: dict) -> str:
+        title = inp["title"]
+        tags = inp["tags"]
+        inciting = inp["inciting_incident"]
+        resolution = inp["resolution"]
+        tools_used = inp["tools_used"]
+        other_tools = inp.get("other_tools", "")
+        pitfalls = inp.get("pitfalls", "")
+        start_time = inp["start_time"]
+
+        num = self._next_incident_number()
+        slug = title.lower().replace(" ", "-").replace("/", "-")
+        slug = "".join(c for c in slug if c.isalnum() or c == "-")
+        filename = f"INC-{num:04d}-{slug}.md"
+        filepath = self._reports_path / filename
+
+        log_entries = self._slice_action_log(start_time)
+        log_json = json.dumps(log_entries, indent=2) if log_entries else "[]"
+
+        now = datetime.now(timezone.utc).isoformat()
+        tags_str = ", ".join(tags)
+        tools_str = ", ".join(f"`{t}`" for t in tools_used)
+
+        sections = [
+            f"---",
+            f"tags: [{tags_str}]",
+            f"incident: INC-{num:04d}",
+            f"date: {now}",
+            f"---",
+            f"",
+            f"# INC-{num:04d}: {title}",
+            f"",
+            f"**Inciting Incident**",
+            f"{inciting}",
+            f"",
+            f"**Resolution**",
+            f"{resolution}",
+            f"",
+            f"**Tools Used**",
+            f"{tools_str}",
+        ]
+        if other_tools:
+            sections += ["", f"**Other Tools**", f"{other_tools}"]
+        if pitfalls:
+            sections += ["", f"**Pitfalls**", f"{pitfalls}"]
+        sections += [
+            f"",
+            f"---",
+            f"## Action Log",
+            f"",
+            f"```json",
+            log_json,
+            f"```",
+        ]
+
+        filepath.write_text("\n".join(sections))
+        return (
+            f"INC-{num:04d} written to `reports/{filename}` "
+            f"({len(log_entries)} action log entries, tags: {tags_str}). "
+            f"Call commit_config_updates to push."
+        )
 
     async def _tool_git_pull(self, inp: dict) -> str:
         dev = self._dev_repo_path

@@ -86,6 +86,7 @@ safety:
     get_prometheus_alerts:   1       # read-only
     slack_notify:            1       # always allowed
     git_pull:                1
+    write_incident_report:   1
     docker_service_scale:    2
     docker_stack_deploy:     2
     docker_stack_rollback:   2
@@ -97,6 +98,35 @@ safety:
   # When a tool is tagged "agent" and the agent selects a tier, log its
   # reasoning in the action log. Toggle with: python config_cli.py log-reasoning on|off
   log_agent_tier_reasoning: true
+
+# -----------------------------------------------------------------------
+# Incident reports
+# -----------------------------------------------------------------------
+reports:
+  # Path relative to dev_repo_path where reports are saved
+  path: "reports"
+  # Predefined tags — agent must choose from this list
+  # Event type (choose one): failure, recovery, deployment, rollback,
+  #   config-change, maintenance, investigation, user-request
+  # Domain (choose one or more): docker, ansible, storage, networking,
+  #   monitoring, database, security, media
+  tags:
+    - failure
+    - recovery
+    - deployment
+    - rollback
+    - config-change
+    - maintenance
+    - investigation
+    - user-request
+    - docker
+    - ansible
+    - storage
+    - networking
+    - monitoring
+    - database
+    - security
+    - media
 
 # -----------------------------------------------------------------------
 # Action log

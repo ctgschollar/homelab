@@ -253,15 +253,22 @@ def build_approval_app(
                         plan_text = block.get("text", {}).get("text", "")
                         break
 
-                # Cache channel, ts, and plan_text so we can update after modal submit
                 channel = payload.get("channel", {}).get("id", "")
                 ts = payload.get("message", {}).get("ts", "")
-                if channel and ts:
-                    _message_cache[plan_id] = (channel, ts, plan_text)
+                user = payload.get("user", {}).get("name", "slack")
 
-                trigger_id = payload.get("trigger_id", "")
-                modal = slack._approval_modal(plan_id, plan_text, approved)
-                await slack.open_modal(trigger_id, modal)
+                if approved:
+                    # Approve immediately — no modal needed
+                    if channel and ts:
+                        await slack.resolve_plan_message(channel, ts, plan_id, plan_text, True, "", user)
+                    pending.resolve(plan_id, True, reason="")
+                else:
+                    # Deny — open modal so user can optionally add context
+                    if channel and ts:
+                        _message_cache[plan_id] = (channel, ts, plan_text)
+                    trigger_id = payload.get("trigger_id", "")
+                    modal = slack._approval_modal(plan_id, plan_text, approved)
+                    await slack.open_modal(trigger_id, modal)
 
             return Response(content="", status_code=200)
 

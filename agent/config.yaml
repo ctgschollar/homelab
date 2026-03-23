@@ -18,11 +18,11 @@ docker:
 
 swarm:
   nodes:
-    - dks01.schollar.dev
-    - dks02.schollar.dev
-    - dks03.schollar.dev
-    - dks04.schollar.dev
-    - dks05.schollar.dev
+  - dks01.schollar.dev
+  - dks02.schollar.dev
+  - dks03.schollar.dev
+  - dks04.schollar.dev
+  - dks05.schollar.dev
   ssh_key: "/root/.ssh/ansible_ssh_key"
   ssh_user: "root"
 
@@ -43,10 +43,10 @@ ansible:
 monitor:
   poll_interval: 30
   watched_stacks:
-    - traefik
-    - monitoring
-    - postgres
-    - coredns
+  - traefik
+  - monitoring
+  - postgres
+  - coredns
 
 # -----------------------------------------------------------------------
 # Safety policy
@@ -58,7 +58,7 @@ safety:
   # before executing anything.
   # Recommended: start with true, disable once you trust the agent's
   # categorisation.
-  global_safe_mode: true
+  global_safe_mode: false
 
   # Per-resource safe mode. Any action whose primary target matches a value
   # in these lists is forced to tier-3 behaviour, even when global_safe_mode

@@ -36,7 +36,10 @@ ansible:
   repo_path: "/opt/homelab"
   inventory: "/opt/homelab/ansible/inventory.yml"
   dev_repo_path: "/home/chris/src/homelab"
-  dev_repo_user: "chris"
+  # GitHub PAT used by the agent to push commits over HTTPS
+  git_token: "${AGENT_GITHUB_TOKEN}"
+  git_author_name: "Homelab Agent"
+  git_author_email: "agent@schollar.dev"
 
 monitor:
   poll_interval: 30

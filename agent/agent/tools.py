@@ -278,7 +278,9 @@ class ToolExecutor:
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
         self._dev_repo_path = config.get("ansible", {}).get("dev_repo_path", "/home/chris/src/homelab")
-        self._dev_repo_user = config.get("ansible", {}).get("dev_repo_user", "chris")
+        self._git_token = config.get("ansible", {}).get("git_token", "")
+        self._git_author_name = config.get("ansible", {}).get("git_author_name", "Homelab Agent")
+        self._git_author_email = config.get("ansible", {}).get("git_author_email", "agent@schollar.dev")
         default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
         rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
         self._rollback_state_path = Path(rollback_path)
@@ -482,15 +484,17 @@ class ToolExecutor:
         paths: list[str] | None = inp.get("paths")
         prod = self._repo_path
         dev = self._dev_repo_path
-        user = self._dev_repo_user
+        token = self._git_token
+        author_name = self._git_author_name
+        author_email = self._git_author_email
 
         if paths:
             # Sync specific files only
-            copy_args: list[str] = []
+            copy_cmds: list[str] = []
             for p in paths:
                 dest_dir = str(Path(dev) / Path(p).parent)
-                copy_args += [f'mkdir -p "{dest_dir}"', f'cp "{prod}/{p}" "{dev}/{p}"']
-            sync_cmd = " && ".join(copy_args)
+                copy_cmds += [f'mkdir -p "{dest_dir}"', f'cp "{prod}/{p}" "{dev}/{p}"']
+            sync_cmd = " && ".join(copy_cmds)
         else:
             # Full rsync excluding runtime/secret files
             sync_cmd = (
@@ -500,20 +504,20 @@ class ToolExecutor:
                 f'"{prod}/" "{dev}/"'
             )
 
-        # Commit and push as the configured dev user; no-op if nothing changed
+        # Commit and push using PAT over HTTPS; no-op if nothing changed
+        git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
         git_cmd = (
-            f'su -s /bin/bash {user} -c '
-            f'\'cd "{dev}" && git add -A && '
-            f'git diff --cached --quiet && echo "No changes to commit." || '
-            f'(git commit -m "{message}" && git push)\''
+            f'cd "{dev}" && git add -A && '
+            f'git {git_opts} diff --cached --quiet && echo "No changes to commit." || '
+            f'(git {git_opts} commit -m "{message}" && '
+            f'git -c "http.extraHeader=Authorization: token {token}" push)'
         )
 
-        result = await self._run_subprocess(
+        return await self._run_subprocess(
             ["bash", "-c", f"{sync_cmd} && {git_cmd}"],
             timeout=60,
             stream=True,
         )
-        return result
 
     async def _tool_docker_stack_rollback(self, inp: dict) -> str:
         stack_name = inp["stack_name"]

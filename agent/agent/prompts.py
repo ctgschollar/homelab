@@ -2,10 +2,10 @@ INFRA_CONTEXT = """
 ## Infrastructure Overview
 
 ### Nodes
-- **Proxmox cluster:** prx01–prx05 at 192.168.3.101–.105
-- **Docker Swarm VMs:** dks01–dks05 at 192.168.3.70–.74
-- prx01 has NVIDIA RTX 3050 (GPU passthrough to media VM)
-- prx05 has 2×14TB RAID 0 for media storage
+- **Proxmox cluster:** prx01.schollar.dev–prx05.schollar.dev at 192.168.3.101–.105
+- **Docker Swarm VMs:** dks01.schollar.dev–dks05.schollar.dev at 192.168.3.70–.74
+- prx01.schollar.dev has NVIDIA RTX 3050 (GPU passthrough to media VM)
+- prx05.schollar.dev has 2×14TB RAID 0 for media storage
 
 ### Swarm Service Placement Constraints
 - `node.labels.traefik == true` → traefik (3 replicas)
@@ -29,7 +29,7 @@ INFRA_CONTEXT = """
 - CoreDNS on port 53 (LAN), port 5353 (Tailscale)
 
 ### Compose Files
-**Edge node:** `192.168.3.91` — runs cloudflared (Cloudflare Tunnel). SSH access via the same key as swarm nodes. Tunnel config lives on this node; check `/etc/cloudflared/` or `~/.cloudflared/` for the config file.
+**Edge node:** `192.168.3.91` (FQDN pending — DNS entry not yet created). Runs cloudflared (Cloudflare Tunnel). SSH access via the same key as swarm nodes. Tunnel config lives on this node; check `/etc/cloudflared/` or `~/.cloudflared/` for the config file.
 
 Compose files live at `/opt/homelab/<stack_name>/docker-compose.yaml`.
 

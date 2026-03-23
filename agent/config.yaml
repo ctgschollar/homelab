@@ -24,6 +24,7 @@ swarm:
   ssh_user: "root"
 
 edge:
+  # FQDN not yet assigned — DNS entry pending. Using IP for now.
   cloudflare_tunnel_node: "192.168.3.91"
   ssh_key: "/root/.ssh/ansible_ssh_key"
   ssh_user: "root"

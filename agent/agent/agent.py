@@ -362,16 +362,31 @@ class HomelabAgent:
     # Agentic loop
     # ------------------------------------------------------------------
 
+    async def _api_create(self) -> Any:
+        """Call messages.create with exponential backoff on overloaded (529) errors."""
+        delay = 5
+        for attempt in range(5):
+            try:
+                return await self._client.messages.create(
+                    model=self._model,
+                    max_tokens=4096,
+                    system=self._system_prompt,
+                    messages=self._history,
+                    tools=TOOL_DEFINITIONS,
+                )
+            except anthropic.APIStatusError as exc:
+                if exc.status_code == 529 and attempt < 4:
+                    console.print(f"  [dim]API overloaded, retrying in {delay}s…[/dim]")
+                    await self._slack.notify(f"⏳ Anthropic API overloaded — retrying in {delay}s…")
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                else:
+                    raise
+
     async def _run_loop(self, trigger: str) -> str:
         final_text = ""
         for _ in range(MAX_ITERATIONS):
-            response = await self._client.messages.create(
-                model=self._model,
-                max_tokens=4096,
-                system=self._system_prompt,
-                messages=self._history,
-                tools=TOOL_DEFINITIONS,
-            )
+            response = await self._api_create()
             self._history.append({"role": "assistant", "content": response.content})
             self._trim_history()
 

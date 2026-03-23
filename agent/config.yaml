@@ -35,6 +35,8 @@ edge:
 ansible:
   repo_path: "/opt/homelab"
   inventory: "/opt/homelab/ansible/inventory.yml"
+  dev_repo_path: "/home/chris/src/homelab"
+  dev_repo_user: "chris"
 
 monitor:
   poll_interval: 30
@@ -86,6 +88,7 @@ safety:
     run_ansible_playbook:    2
     run_shell:               "agent"
     write_file:              3
+    commit_config_updates:   3
 
   # When a tool is tagged "agent" and the agent selects a tier, log its
   # reasoning in the action log. Toggle with: python config_cli.py log-reasoning on|off

@@ -216,6 +216,34 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "commit_config_updates",
+        "description": (
+            "Sync config changes made in /opt/homelab back to the dev repo at "
+            "/home/chris/src/homelab, then commit and push as the chris user. "
+            "Use this after editing any file in /opt/homelab so the change is "
+            "persisted in git. Always tier 3 — requires explicit approval."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Git commit message describing what changed.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of repo-relative paths to sync "
+                        "(e.g. ['jellyseerr/docker-compose.yaml']). "
+                        "If omitted, rsync is used to sync all non-excluded files."
+                    ),
+                },
+            },
+            "required": ["message"],
+        },
+    },
+    {
         "name": "docker_stack_rollback",
         "description": (
             "Roll back a Docker stack to the image tags that were running before the last deploy. "
@@ -249,6 +277,8 @@ class ToolExecutor:
         self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
+        self._dev_repo_path = config.get("ansible", {}).get("dev_repo_path", "/home/chris/src/homelab")
+        self._dev_repo_user = config.get("ansible", {}).get("dev_repo_user", "chris")
         default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
         rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
         self._rollback_state_path = Path(rollback_path)
@@ -446,6 +476,44 @@ class ToolExecutor:
             "-c", compose_path,
             stack_name,
         ])
+
+    async def _tool_commit_config_updates(self, inp: dict) -> str:
+        message = inp["message"]
+        paths: list[str] | None = inp.get("paths")
+        prod = self._repo_path
+        dev = self._dev_repo_path
+        user = self._dev_repo_user
+
+        if paths:
+            # Sync specific files only
+            copy_args: list[str] = []
+            for p in paths:
+                dest_dir = str(Path(dev) / Path(p).parent)
+                copy_args += [f'mkdir -p "{dest_dir}"', f'cp "{prod}/{p}" "{dev}/{p}"']
+            sync_cmd = " && ".join(copy_args)
+        else:
+            # Full rsync excluding runtime/secret files
+            sync_cmd = (
+                f"rsync -a --exclude='.git' --exclude='*.log' "
+                f"--exclude='rollback_state.json' --exclude='agent_history.json' "
+                f"--exclude='action.log' --exclude='agent/config.yaml' "
+                f'"{prod}/" "{dev}/"'
+            )
+
+        # Commit and push as the configured dev user; no-op if nothing changed
+        git_cmd = (
+            f'su -s /bin/bash {user} -c '
+            f'\'cd "{dev}" && git add -A && '
+            f'git diff --cached --quiet && echo "No changes to commit." || '
+            f'(git commit -m "{message}" && git push)\''
+        )
+
+        result = await self._run_subprocess(
+            ["bash", "-c", f"{sync_cmd} && {git_cmd}"],
+            timeout=60,
+            stream=True,
+        )
+        return result
 
     async def _tool_docker_stack_rollback(self, inp: dict) -> str:
         stack_name = inp["stack_name"]

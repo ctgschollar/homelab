@@ -462,12 +462,10 @@ class HomelabAgent:
         # the only approval channel available.
         console.print(f"\n  [bold yellow]Plan ID:[/bold yellow] {plan_id}")
         console.print(f"  [yellow]{plan_text}[/yellow]")
-        if not self._slack.configured:
-            console.print("  [dim](Slack not configured — approve here in the terminal)[/dim]")
         if veto_seconds is not None:
-            console.print(f"  Type [bold]APPROVE {plan_id}[/bold] or [bold]STOP {plan_id}[/bold] (auto-cancels in {veto_seconds}s)")
+            console.print(f"  Type [bold]y[/bold] to approve, [bold]n[/bold] to deny, or a message to cancel with context (auto-cancels in {veto_seconds}s)")
         else:
-            console.print(f"  Type [bold]APPROVE {plan_id}[/bold] or [bold]STOP {plan_id}[/bold] (no timeout)")
+            console.print(f"  Type [bold]y[/bold] to approve, [bold]n[/bold] to deny, or a message to cancel with context")
 
         fut = self._pending.register(plan_id, block.name, plan_text, resolved.tier)
         approved: bool

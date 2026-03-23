@@ -103,6 +103,12 @@ Built-in commands:
   /log today     — entries since midnight
   /log 2026-03-23           — entries for a specific date
   /log 2026-03-23 2026-03-24 — entries between two dates
+
+Approvals (when a plan is waiting):
+  y / yes                   — approve the pending plan
+  n / no                    — deny the pending plan
+  APPROVE <id> / STOP <id>  — approve/deny by ID (for Slack or multiple plans)
+  any other text            — cancel pending plan(s) and send as agent context
 """
 
 
@@ -235,6 +241,20 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
         elif upper.startswith("/LOG"):
             log_args = line.split()[1:]
             await show_log(log_path, log_args)
+        elif upper in ("Y", "YES", "N", "NO"):
+            # Shorthand: approve or deny the single pending plan (CLI-only convenience)
+            pending_ids = agent._pending.known_ids()
+            if not pending_ids:
+                console.print("  [dim]No pending plan to approve.[/dim]")
+            elif len(pending_ids) > 1:
+                console.print(f"  [dim]Multiple plans pending — use APPROVE/STOP <id>: {', '.join(pending_ids)}[/dim]")
+            else:
+                plan_id = pending_ids[0]
+                approved = upper in ("Y", "YES")
+                agent._pending.resolve(plan_id, approved)
+                if approved:
+                    await asyncio.sleep(0)
+                    console.print(f"  [dim]Executing {plan_id}… (type /plans to check progress)[/dim]")
         elif upper.startswith("APPROVE ") or upper.startswith("STOP "):
             command, _, plan_id = line.partition(" ")
             plan_id = plan_id.strip().lower()
@@ -243,8 +263,6 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             if not found:
                 console.print(f"  [dim]Unknown plan ID: {plan_id}[/dim]")
             elif approved:
-                # Yield to the event loop so _handle_approval_flow can start
-                # execution and set _active_execution before the next prompt.
                 await asyncio.sleep(0)
                 console.print(f"  [dim]Executing {plan_id}… (type /plans to check progress)[/dim]")
         else:

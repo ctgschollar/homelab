@@ -447,7 +447,7 @@ class HomelabAgent:
         plan_text = self._format_plan(block.name, tool_input)
         veto_seconds = self._veto_window if resolved.tier == 2 else None
 
-        await self._slack.notify_plan(plan_id, plan_text, veto_seconds)
+        message_ts = await self._slack.notify_plan(plan_id, plan_text, veto_seconds)
         await self._logger.log_plan_proposed(
             plan_id=plan_id,
             tool=block.name,
@@ -506,6 +506,8 @@ class HomelabAgent:
             safe_mode_active=resolved.safe_mode_active,
             trigger=trigger,
         )
+        if message_ts:
+            await self._slack.update_plan_result(message_ts, plan_id, plan_text, result)
         return result
 
     # ------------------------------------------------------------------

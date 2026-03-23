@@ -202,6 +202,35 @@ class SlackClient:
         blocks = self._resolved_blocks(plan_id, approved, context, by)
         await self._update_message(channel, ts, blocks)
 
+    async def update_plan_result(
+        self,
+        ts: str,
+        plan_id: str,
+        plan_text: str,
+        result: str,
+    ) -> None:
+        """Final update: replace the plan message with approval + execution result."""
+        success = not result.startswith("ERROR:")
+        icon = "✅" if success else "❌"
+        label = "Completed" if success else "Failed"
+        output = result if len(result) <= 2800 else result[:2800] + "\n…(truncated)"
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"{icon} Plan {label}: {plan_id}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": plan_text},
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Result:*\n```{output}```"},
+            },
+        ]
+        await self._update_message(self._channel, ts, blocks, text=f"Plan {label}: {plan_id}")
+
     async def notify_action_taken(self, action: str, service: str, reason: str) -> None:
         await self._post_message([
             {

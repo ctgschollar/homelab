@@ -15,7 +15,7 @@ volumes:
 
 services:
   jellyseerr:
-    image: fallenbagel/jellyseerr:latest
+    image: ghcr.io/seerr-team/seerr:v3.1.0
     networks:
       - traefik-net
     environment:
@@ -55,4 +55,3 @@ services:
         # Prometheus Blackbox monitoring
         - prometheus.blackbox=true
         - metrics.probe_url=https://jellyseerr.schollar.dev
-

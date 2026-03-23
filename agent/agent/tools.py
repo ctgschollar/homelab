@@ -663,9 +663,10 @@ class ToolExecutor:
         )
         commit_msg = f"incident: INC-{num:04d} {title}"
         remote_url = await self._authed_remote_url(repo)
+        abs_report = str(filepath)
         git_cmd = (
             f'cd "{repo}" && '
-            f'git {git_opts} add "reports/{filename}" && '
+            f'git {git_opts} add "{abs_report}" && '
             f'git {git_opts} commit -m "{commit_msg}" && '
             f'git push "{remote_url}"'
         )

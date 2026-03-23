@@ -216,6 +216,24 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "git_pull",
+        "description": (
+            "Pull the latest changes from the remote into the dev repo at the configured dev_repo_path. "
+            "Uses the configured PAT for HTTPS authentication. "
+            "If the pull succeeds cleanly, returns the git output. "
+            "If there are merge conflicts, returns the list of conflicted files and their conflict markers. "
+            "On conflict: read each conflicted file, decide which version is correct "
+            "(incoming remote change vs local agent change), write the resolved file using write_file, "
+            "then call commit_config_updates with message 'resolve merge conflict' to stage and push. "
+            "Never leave a repo in a conflicted state."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "commit_config_updates",
         "description": (
             "Sync config changes made in /opt/homelab back to the dev repo at "
@@ -478,6 +496,29 @@ class ToolExecutor:
             "-c", compose_path,
             stack_name,
         ])
+
+    async def _tool_git_pull(self, inp: dict) -> str:
+        dev = self._dev_repo_path
+        token = self._git_token
+        git_opts = f'-c safe.directory="{dev}" -c "http.extraHeader=Authorization: token {token}"'
+        cmd = f'cd "{dev}" && git {git_opts} pull 2>&1'
+        result = await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
+
+        # Check for conflicts and return conflicted file contents if found
+        if "CONFLICT" in result or "Merge conflict" in result:
+            conflicts_cmd = f'cd "{dev}" && git {git_opts} diff --name-only --diff-filter=U'
+            conflicted = await self._run_subprocess(["bash", "-c", conflicts_cmd], timeout=10)
+            files = [f.strip() for f in conflicted.splitlines() if f.strip()]
+            details = [result, "\nConflicted files:"]
+            for f in files:
+                try:
+                    content = (Path(dev) / f).read_text()
+                    details.append(f"\n--- {f} ---\n{content}")
+                except Exception:
+                    details.append(f"\n--- {f} --- (could not read)")
+            return "\n".join(details)
+
+        return result
 
     async def _tool_commit_config_updates(self, inp: dict) -> str:
         message = inp["message"]

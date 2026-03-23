@@ -85,6 +85,7 @@ safety:
     read_file:               1       # read-only
     get_prometheus_alerts:   1       # read-only
     slack_notify:            1       # always allowed
+    git_pull:                1
     docker_service_scale:    2
     docker_stack_deploy:     2
     docker_stack_rollback:   2

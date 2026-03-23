@@ -452,6 +452,7 @@ class HomelabAgent:
                             slack_text = f"📋 {block.text}"
                         else:
                             slack_text = f"🔍 {block.text}"
+                        console.print(f"  [dim cyan]→ Slack notify ({len(slack_text)} chars)[/dim cyan]")
                         await self._slack.notify(slack_text)
 
             if response.stop_reason == "end_turn":

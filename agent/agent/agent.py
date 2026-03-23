@@ -439,7 +439,8 @@ class HomelabAgent:
         )
         console.print(f"  [yellow]> {block.name}({params})[/yellow]")
         if resolved.safe_mode_active:
-            console.print(f"  [bold yellow]  [SAFE MODE — tier forced to 3][/bold yellow]")
+            original = f"would have been tier {resolved.original_tier}" if resolved.original_tier is not None else "original tier unknown"
+            console.print(f"  [bold yellow]  [SAFE MODE — tier forced to 3, {original}][/bold yellow]")
         if resolved.agent_reasoning:
             console.print(f"  [dim italic]  tier reasoning: {resolved.agent_reasoning}[/dim italic]")
 

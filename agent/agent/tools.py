@@ -612,17 +612,16 @@ class ToolExecutor:
         pitfalls = inp.get("pitfalls", "")
         now_utc = datetime.now(timezone.utc)
         raw_start = inp.get("start_time", "")
+        start_time_valid = False
         start_time = raw_start
-        # Correct hallucinated/missing start times: if not parseable or more than
-        # 24 hours in the past or in the future, fall back to 4 hours ago.
         try:
             parsed = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
-            if abs((now_utc - parsed).total_seconds()) > 86400:
-                start_time = (now_utc - timedelta(hours=4)).isoformat()
+            if abs((now_utc - parsed).total_seconds()) <= 86400:
+                start_time_valid = True
         except (ValueError, AttributeError):
-            start_time = (now_utc - timedelta(hours=4)).isoformat()
+            pass
 
         num = self._next_incident_number()
         slug = title.lower().replace(" ", "-").replace("/", "-")
@@ -630,7 +629,7 @@ class ToolExecutor:
         filename = f"INC-{num:04d}-{slug}.md"
         filepath = self._reports_path / filename
 
-        log_entries = self._slice_action_log(start_time)
+        log_entries = self._slice_action_log(start_time) if start_time_valid else []
         log_json = json.dumps(log_entries, indent=2) if log_entries else "[]"
 
         # Auto-extract shell commands and rejected plans from the log slice

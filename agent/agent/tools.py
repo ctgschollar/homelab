@@ -355,9 +355,12 @@ class ToolExecutor:
     def _docker_client(self) -> docker.DockerClient:
         return docker.DockerClient(base_url=self._docker_socket)
 
-    def _git_auth_opt(self) -> str:
-        """Return a git -c flag that injects the PAT for HTTPS operations."""
-        return f'-c "http.extraHeader=Authorization: token {self._git_token}"'
+    async def _authed_push_url(self, repo: str) -> str:
+        """Return the origin remote URL with the PAT embedded for push/pull."""
+        url = await self._run_subprocess(
+            ["git", "-C", repo, "remote", "get-url", "origin"], timeout=10
+        )
+        return url.replace("https://", f"https://{self._git_token}@", 1)
 
     async def execute(self, tool_name: str, tool_input: dict) -> str:
         method = getattr(self, f"_tool_{tool_name}", None)
@@ -658,13 +661,13 @@ class ToolExecutor:
             f'-c user.email="{author_email}"'
         )
         commit_msg = f"incident: INC-{num:04d} {title}"
-        auth = self._git_auth_opt()
+        push_url = await self._authed_push_url(repo)
         abs_report = str(filepath)
         git_cmd = (
             f'cd "{repo}" && '
             f'git {git_opts} add "{abs_report}" && '
             f'git {git_opts} commit -m "{commit_msg}" && '
-            f'git {auth} push origin'
+            f'git push "{push_url}"'
         )
         git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
 
@@ -675,8 +678,8 @@ class ToolExecutor:
 
     async def _tool_git_pull(self, inp: dict) -> str:
         repo = self._repo_path
-        auth = self._git_auth_opt()
-        cmd = f'cd "{repo}" && git {auth} pull --no-rebase origin 2>&1'
+        push_url = await self._authed_push_url(repo)
+        cmd = f'cd "{repo}" && git pull --no-rebase "{push_url}" 2>&1'
         result = await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
 
         # Check for conflicts and return conflicted file contents if found
@@ -701,14 +704,14 @@ class ToolExecutor:
         author_name = self._git_author_name
         author_email = self._git_author_email
 
-        auth = self._git_auth_opt()
+        push_url = await self._authed_push_url(repo)
         git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
         cmd = (
             f'cd "{repo}" && git add -A && '
             f'if git {git_opts} diff --cached --quiet; then '
             f'echo "No changes to commit."; '
             f'else '
-            f'git {git_opts} commit -m "{message}" && git {auth} push origin; '
+            f'git {git_opts} commit -m "{message}" && git push "{push_url}"; '
             f'fi'
         )
 

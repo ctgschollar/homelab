@@ -46,6 +46,7 @@
     owner: root
     group: root
     mode: '0640'
+  when: cloudflared_tunnel_credentials | length > 0
   notify: restart cloudflared
 
 - name: Create systemd service file

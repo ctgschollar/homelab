@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import os
 import re
 import sys
@@ -132,11 +133,20 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             if not found:
                 console.print(f"  [dim]Unknown plan ID: {plan_id}[/dim]")
         else:
+            # Free-form message: if plans are pending, cancel them so the agent
+            # can re-plan with the user's new context.
+            pending_ids = agent._pending.known_ids()
+            if pending_ids:
+                cancelled = agent._pending.cancel_all(reason=line)
+                console.print(
+                    f"  [dim]Cancelled {len(cancelled)} pending plan(s). "
+                    f"Sending your message to the agent...[/dim]"
+                )
             await event_queue.put({
                 "source": "cli",
                 "type": "user_message",
                 "data": {"message": line},
-                "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+                "timestamp": datetime.now(timezone.utc),
             })
 
 

@@ -117,6 +117,7 @@ class ActionLogger:
 
 class PendingApprovals:
     def __init__(self) -> None:
+        # future result is (approved: bool, reason: str)
         self._futures: dict[str, asyncio.Future] = {}
 
     def register(self, plan_id: str) -> asyncio.Future:
@@ -125,12 +126,19 @@ class PendingApprovals:
         self._futures[plan_id] = fut
         return fut
 
-    def resolve(self, plan_id: str, approved: bool) -> bool:
+    def resolve(self, plan_id: str, approved: bool, reason: str = "") -> bool:
         fut = self._futures.pop(plan_id, None)
         if fut is None or fut.done():
             return False
-        fut.set_result(approved)
+        fut.set_result((approved, reason))
         return True
+
+    def cancel_all(self, reason: str) -> list[str]:
+        """Cancel all pending plans. Returns the cancelled plan IDs."""
+        ids = list(self._futures.keys())
+        for plan_id in ids:
+            self.resolve(plan_id, False, reason)
+        return ids
 
     def known_ids(self) -> list[str]:
         return list(self._futures.keys())
@@ -153,7 +161,7 @@ def build_approval_app(pending: PendingApprovals) -> FastAPI:
             if upper.startswith(command + " "):
                 plan_id = text[len(command) + 1:].strip().lower()
                 approved = command == "APPROVE"
-                found = pending.resolve(plan_id, approved)
+                found = pending.resolve(plan_id, approved, reason="slack:STOP" if not approved else "")
                 if found:
                     action = "approved" if approved else "stopped"
                     return Response(content=f"Plan {plan_id} {action}.", media_type="text/plain")
@@ -381,18 +389,19 @@ class HomelabAgent:
 
         try:
             if veto_seconds is not None:
-                approved = await asyncio.wait_for(asyncio.shield(fut), timeout=veto_seconds)
+                approved, reason = await asyncio.wait_for(asyncio.shield(fut), timeout=veto_seconds)
             else:
-                approved = await fut
-            reason = "slack:STOP" if not approved else ""
+                approved, reason = await fut
         except asyncio.TimeoutError:
             approved = False
             reason = "timeout"
-            self._pending.resolve(plan_id, False)
+            self._pending.resolve(plan_id, False, "timeout")
 
         if not approved:
             await self._logger.log_plan_cancelled(plan_id, block.name, reason)
-            return f"[cancelled: {reason}]"
+            # Surface user's message to the agent so it can re-plan with context
+            detail = f" — user said: {reason}" if reason and not reason.startswith("slack:") and reason != "timeout" else ""
+            return f"[cancelled: {reason}{detail}]"
 
         await self._logger.log_plan_approved(plan_id, block.name)
         result = await self._tools.execute(block.name, tool_input)

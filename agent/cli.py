@@ -328,13 +328,18 @@ async def amain(args: argparse.Namespace) -> None:
         listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port)
         console.print(f"[dim]Approval listener up on {listener_host}:{listener_port}[/dim]")
         plan_id = "test-plan"
-        plan_text = "*Tool:* `slack_test`\n*Inputs:*\n  message: This is a test plan from the homelab agent."
-        fut = agent._pending.register(plan_id, "slack_test", plan_text, tier=3)
-        await agent._slack.notify_plan(plan_id, plan_text, veto_seconds=None)
+        tool_input = {"command": "cat /etc/debian_version", "agent_proposed_tier": 1, "agent_reasoning": "read-only"}
+        plan_text = "*Tool:* `run_shell`\n*Inputs:*\n  command: cat /etc/debian_version"
+        fut = agent._pending.register(plan_id, "run_shell", plan_text, tier=1)
+        message_ts = await agent._slack.notify_plan(plan_id, plan_text, veto_seconds=None)
         console.print(f"  Test plan [bold yellow]{plan_id}[/bold yellow] posted to Slack — waiting for Approve/Deny…")
         approved, reason = await fut
         if approved:
             console.print(f"  [bold green]Approved![/bold green] reason: {reason or '(none)'}")
+            result = await agent._tools.execute("run_shell", tool_input)
+            console.print(f"  Result: {result}")
+            if message_ts:
+                await agent._slack.update_plan_result(message_ts, plan_id, plan_text, result)
         else:
             console.print(f"  [bold red]Denied.[/bold red] reason: {reason or '(none)'}")
         listener_server.should_exit = True

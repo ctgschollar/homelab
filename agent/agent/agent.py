@@ -198,11 +198,11 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
 
                 approved = action_id == "plan_approve"
 
-                # Cache the channel + ts so we can update after modal submit
+                # Cache the channel, ts, and plan_text so we can update after modal submit
                 channel = payload.get("channel", {}).get("id", "")
                 ts = payload.get("message", {}).get("ts", "")
                 if channel and ts:
-                    _message_cache[plan_id] = (channel, ts)
+                    _message_cache[plan_id] = (channel, ts, plan_text)
 
                 # Find the plan_text from the original message for the modal
                 plan_text = ""
@@ -241,8 +241,8 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
             # Update the original Slack message before resolving the future,
             # so the HTTP call completes before the caller can cancel the server.
             if plan_id in _message_cache:
-                channel, ts = _message_cache.pop(plan_id)
-                await slack.resolve_plan_message(channel, ts, plan_id, approved, context, user)
+                channel, ts, plan_text = _message_cache.pop(plan_id)
+                await slack.resolve_plan_message(channel, ts, plan_id, plan_text, approved, context, user)
 
             found = pending.resolve(plan_id, approved, reason=reason)
 

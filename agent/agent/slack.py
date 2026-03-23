@@ -164,14 +164,26 @@ class SlackClient:
         }
 
     @staticmethod
-    def _resolved_blocks(plan_id: str, approved: bool, context: str, by: str) -> list:
+    def _resolved_blocks(plan_id: str, plan_text: str, approved: bool, context: str, by: str) -> list:
         icon = "✅" if approved else "❌"
         label = "Approved" if approved else "Denied"
-        lines = [f"*Plan ID:* `{plan_id}`  →  {icon} *{label}* by {by}"]
+        status_line = f"{icon} *{label}* by {by}"
         if context:
-            lines.append(f"*Context:* {context}")
+            status_line += f" — {context}"
         return [
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"{icon} Plan {label}: {plan_id}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": plan_text},
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": status_line},
+            },
         ]
 
     # ------------------------------------------------------------------
@@ -194,12 +206,13 @@ class SlackClient:
         channel: str,
         ts: str,
         plan_id: str,
+        plan_text: str,
         approved: bool,
         context: str,
         by: str,
     ) -> None:
         """Update the original plan message to show the resolution."""
-        blocks = self._resolved_blocks(plan_id, approved, context, by)
+        blocks = self._resolved_blocks(plan_id, plan_text, approved, context, by)
         await self._update_message(channel, ts, blocks)
 
     async def update_plan_result(

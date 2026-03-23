@@ -19,6 +19,7 @@ import os
 import re
 import sys
 
+import httpx
 import yaml
 from rich.console import Console
 
@@ -27,6 +28,15 @@ from agent.log_viewer import browse_log
 from agent.monitor import MonitorDaemon
 
 console = Console()
+
+
+async def _fetch_zar_rate() -> float | None:
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get("https://api.frankfurter.app/latest?from=USD&to=ZAR")
+            return resp.json()["rates"]["ZAR"]
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +113,7 @@ Built-in commands:
   /log today     — entries since midnight
   /log 2026-03-23           — entries for a specific date
   /log 2026-03-23 2026-03-24 — entries between two dates
+  /cost day|month|year      — show API spend for the period
 
 Approvals (when a plan is waiting):
   y / yes                   — approve the pending plan
@@ -192,6 +203,106 @@ async def show_log(log_path: str, args: list[str]) -> None:
     await browse_log(entries)
 
 
+def compute_cost_summary(log_path: str, start: datetime, end: datetime | None = None) -> dict:
+    """Read the action log and sum api_cost entries within the time window."""
+    total_usd = 0.0
+    total_input = 0
+    total_output = 0
+    calls = 0
+    try:
+        with open(log_path) as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("event") != "api_cost":
+                    continue
+                ts_str = entry.get("ts", "")
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if ts < start:
+                    continue
+                if end and ts >= end:
+                    continue
+                total_usd += entry.get("cost_usd", 0.0)
+                total_input += entry.get("input_tokens", 0)
+                total_output += entry.get("output_tokens", 0)
+                calls += 1
+    except FileNotFoundError:
+        pass
+    return {"cost_usd": total_usd, "input_tokens": total_input, "output_tokens": total_output, "calls": calls}
+
+
+def format_cost_report(label: str, period: str, summary: dict, zar_rate: float | None = None) -> str:
+    usd = summary["cost_usd"]
+    lines = [f"*{label} API spend ({period})*"]
+    cost_str = f"${usd:.4f}"
+    if zar_rate is not None:
+        cost_str += f" / R{usd * zar_rate:.2f}"
+    lines.append(f"Cost: {cost_str}")
+    lines.append(f"Turns: {summary['calls']}  ({summary['input_tokens']:,}↑ {summary['output_tokens']:,}↓ tokens)")
+    return "\n".join(lines)
+
+
+async def show_cost(log_path: str, args: list[str]) -> None:
+    if not args or args[0] not in ("day", "month", "year"):
+        console.print("  Usage: /cost day|month|year")
+        return
+    now = datetime.now(timezone.utc)
+    period = args[0]
+    if period == "day":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        label, period_str = "Daily", now.strftime("%Y-%m-%d")
+    elif period == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        label, period_str = "Monthly", now.strftime("%B %Y")
+    else:
+        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        label, period_str = "Yearly", str(now.year)
+    summary = compute_cost_summary(log_path, start)
+    zar_rate = await _fetch_zar_rate()
+    report = format_cost_report(label, period_str, summary, zar_rate)
+    console.print(f"\n  [bold]{label} spend ({period_str}):[/bold]")
+    console.print(f"  ${summary['cost_usd']:.4f}", end="")
+    if zar_rate:
+        console.print(f" / R{summary['cost_usd'] * zar_rate:.2f}", end="")
+    console.print(f"  ({summary['calls']} turns, {summary['input_tokens']:,}↑ {summary['output_tokens']:,}↓)")
+
+
+async def cost_reporter(agent: HomelabAgent, log_path: str) -> None:
+    """Background task: post cost summaries to Slack at midnight each day/month/year."""
+    while True:
+        now = datetime.now(timezone.utc)
+        next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        await asyncio.sleep((next_midnight - now).total_seconds())
+
+        zar_rate = await _fetch_zar_rate()
+
+        # Daily — always
+        yesterday = next_midnight - timedelta(days=1)
+        summary = compute_cost_summary(log_path, yesterday, next_midnight)
+        await agent._slack.notify(format_cost_report("Daily", yesterday.strftime("%Y-%m-%d"), summary, zar_rate))
+
+        # Monthly — on the 1st
+        if next_midnight.day == 1:
+            month_start = (next_midnight - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            summary = compute_cost_summary(log_path, month_start, next_midnight)
+            period_str = month_start.strftime("%B %Y")
+            await agent._slack.notify(format_cost_report("Monthly", period_str, summary, zar_rate))
+
+        # Yearly — on Jan 1
+        if next_midnight.month == 1 and next_midnight.day == 1:
+            year_start = next_midnight.replace(year=next_midnight.year - 1)
+            summary = compute_cost_summary(log_path, year_start, next_midnight)
+            await agent._slack.notify(format_cost_report("Yearly", str(year_start.year), summary, zar_rate))
+
+
 async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue, log_path: str) -> None:
     loop = asyncio.get_event_loop()
     console.print("[bold cyan]Homelab Agent[/bold cyan] — type /quit to exit, /help for commands.")
@@ -241,6 +352,8 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
         elif upper.startswith("/LOG"):
             log_args = line.split()[1:]
             await show_log(log_path, log_args)
+        elif upper.startswith("/COST"):
+            await show_cost(log_path, line.split()[1:])
         elif upper in ("Y", "YES", "N", "NO"):
             # Shorthand: approve or deny the single pending plan (CLI-only convenience)
             pending_ids = agent._pending.known_ids()
@@ -287,14 +400,28 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
 # Event consumer task
 # ---------------------------------------------------------------------------
 
+async def _post_cost(agent: HomelabAgent, cost_usd: float) -> None:
+    zar_rate = await _fetch_zar_rate()
+    cost_str = f"${cost_usd:.4f}"
+    if zar_rate is not None:
+        cost_str += f" / R{cost_usd * zar_rate:.2f}"
+    await agent._slack.notify(f"_Cost: {cost_str}_")
+
+
 async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> None:
     while True:
         event = await event_queue.get()
         try:
             if event["type"] == "user_message":
-                await agent.chat(event["data"]["message"], trigger="cli:user_message")
+                source = event.get("source", "cli")
+                response, cost_usd = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
+                if source != "cli":
+                    if response:
+                        await agent._slack.notify(response)
+                    await _post_cost(agent, cost_usd)
             else:
-                await agent.handle_event(event)
+                _, cost_usd = await agent.handle_event(event)
+                await _post_cost(agent, cost_usd)
         except Exception as exc:
             console.print(f"\n[bold red]Event consumer error:[/bold red] {exc}")
         finally:
@@ -320,6 +447,33 @@ async def amain(args: argparse.Namespace) -> None:
     listener_host = listener_cfg.get("host", "0.0.0.0")
     listener_port = int(listener_cfg.get("port", 8765))
 
+    # Slack test mode
+    if args.test_slack:
+        if not agent._slack.configured:
+            console.print("[bold red]Slack is not configured — set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET.[/bold red]")
+            return
+        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port)
+        console.print(f"[dim]Approval listener up on {listener_host}:{listener_port}[/dim]")
+        plan_id = "test-plan"
+        tool_input = {"command": "cat /etc/debian_version", "agent_proposed_tier": 1, "agent_reasoning": "read-only"}
+        plan_text = "*Tool:* `run_shell`\n*Inputs:*\n  command: cat /etc/debian_version"
+        fut = agent._pending.register(plan_id, "run_shell", plan_text, tier=1)
+        message_ref = await agent._slack.notify_plan(plan_id, plan_text, veto_seconds=None)
+        console.print(f"  Test plan [bold yellow]{plan_id}[/bold yellow] posted to Slack — waiting for Approve/Deny…")
+        approved, reason = await fut
+        if approved:
+            console.print(f"  [bold green]Approved![/bold green] reason: {reason or '(none)'}")
+            result = await agent._tools.execute("run_shell", tool_input)
+            console.print(f"  Result: {result}")
+            if message_ref:
+                await agent._slack.update_plan_result(*message_ref, plan_id, plan_text, result)
+        else:
+            console.print(f"  [bold red]Denied.[/bold red] reason: {reason or '(none)'}")
+        listener_server.should_exit = True
+        await listener_task
+        await agent.aclose()
+        return
+
     # Single message mode
     if args.message:
         consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
@@ -332,26 +486,31 @@ async def amain(args: argparse.Namespace) -> None:
     # Start background tasks
     monitor_task = asyncio.create_task(monitor.run())
     consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
-    listener_task = await agent.start_approval_listener(listener_host, listener_port)
-
-    all_tasks = [monitor_task, consumer_task, listener_task]
 
     if args.daemon:
+        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue)
+        reporter_task = asyncio.create_task(cost_reporter(agent, log_path))
         console.print("[dim]Running in daemon mode. Ctrl+C to stop.[/dim]")
         try:
-            await asyncio.gather(*all_tasks)
+            await asyncio.gather(monitor_task, consumer_task, listener_task, reporter_task)
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
+        finally:
+            monitor_task.cancel()
+            consumer_task.cancel()
+            reporter_task.cancel()
+            listener_server.should_exit = True
+            await asyncio.gather(monitor_task, consumer_task, listener_task, reporter_task, return_exceptions=True)
     else:
-        # Interactive REPL
+        # Interactive REPL — no listener, approvals via CLI only
         try:
             await run_repl(agent, config, event_queue, log_path)
         except KeyboardInterrupt:
             pass
         finally:
-            for t in all_tasks:
-                t.cancel()
-            await asyncio.gather(*all_tasks, return_exceptions=True)
+            monitor_task.cancel()
+            consumer_task.cancel()
+            await asyncio.gather(monitor_task, consumer_task, return_exceptions=True)
 
     await agent.aclose()
 
@@ -361,6 +520,7 @@ def main() -> None:
     parser.add_argument("message", nargs="?", help="Single question/command (non-interactive mode)")
     parser.add_argument("--daemon", action="store_true", help="Run headlessly as a monitor daemon")
     parser.add_argument("--check", action="store_true", help="Print service status and exit")
+    parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     args = parser.parse_args()
 

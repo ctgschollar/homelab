@@ -84,6 +84,8 @@ class MonitorDaemon:
 
         now = datetime.now(timezone.utc)
 
+        newly_down: list[dict] = []
+
         for svc in results:
             name = svc["name"]
             running = svc["running"]
@@ -101,16 +103,11 @@ class MonitorDaemon:
                         "desired": desired,
                         "last_error": last_error,
                     })
-                    await self._event_queue.put({
-                        "source": "monitor",
-                        "type": "service_down",
-                        "data": {
-                            "service": name,
-                            "running": running,
-                            "desired": desired,
-                            "last_error": last_error,
-                        },
-                        "timestamp": now,
+                    newly_down.append({
+                        "service": name,
+                        "running": running,
+                        "desired": desired,
+                        "last_error": last_error,
                     })
             else:
                 if name in self._down_since:
@@ -130,6 +127,14 @@ class MonitorDaemon:
                         },
                         "timestamp": now,
                     })
+
+        if newly_down:
+            await self._event_queue.put({
+                "source": "monitor",
+                "type": "services_down",
+                "data": {"services": newly_down},
+                "timestamp": now,
+            })
 
     async def run(self) -> None:
         while True:

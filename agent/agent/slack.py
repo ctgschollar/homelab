@@ -6,6 +6,9 @@ import json
 import time
 
 import httpx
+from rich.console import Console
+
+_console = Console()
 
 
 _COLORS = {
@@ -56,7 +59,10 @@ class SlackClient:
             headers={"Authorization": f"Bearer {self._token}"},
             json=payload,
         )
-        return resp.json()
+        data = resp.json()
+        if not data.get("ok"):
+            _console.print(f"  [bold red]Slack API error ({method}):[/bold red] {data.get('error', data)}")
+        return data
 
     async def _post_message(self, blocks: list, text: str = "") -> dict:
         return await self._call("chat.postMessage", {
@@ -158,14 +164,26 @@ class SlackClient:
         }
 
     @staticmethod
-    def _resolved_blocks(plan_id: str, approved: bool, context: str, by: str) -> list:
+    def _resolved_blocks(plan_id: str, plan_text: str, approved: bool, context: str, by: str) -> list:
         icon = "✅" if approved else "❌"
         label = "Approved" if approved else "Denied"
-        lines = [f"*Plan ID:* `{plan_id}`  →  {icon} *{label}* by {by}"]
+        status_line = f"{icon} *{label}* by {by}"
         if context:
-            lines.append(f"*Context:* {context}")
+            status_line += f" — {context}"
         return [
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"{icon} Plan {label}: {plan_id}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": plan_text},
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": status_line},
+            },
         ]
 
     # ------------------------------------------------------------------
@@ -177,24 +195,59 @@ class SlackClient:
         plan_id: str,
         plan_text: str,
         veto_seconds: int | None,
-    ) -> str | None:
-        """Post the plan message. Returns the message timestamp (for later update)."""
+    ) -> tuple[str, str] | None:
+        """Post the plan message. Returns (channel_id, ts) for later updates."""
         blocks = self._plan_blocks(plan_id, plan_text, veto_seconds)
         result = await self._post_message(blocks, text=f"Plan proposed: {plan_id}")
-        return result.get("ts")
+        channel = result.get("channel")
+        ts = result.get("ts")
+        if channel and ts:
+            return channel, ts
+        return None
 
     async def resolve_plan_message(
         self,
         channel: str,
         ts: str,
         plan_id: str,
+        plan_text: str,
         approved: bool,
         context: str,
         by: str,
     ) -> None:
         """Update the original plan message to show the resolution."""
-        blocks = self._resolved_blocks(plan_id, approved, context, by)
+        blocks = self._resolved_blocks(plan_id, plan_text, approved, context, by)
         await self._update_message(channel, ts, blocks)
+
+    async def update_plan_result(
+        self,
+        channel: str,
+        ts: str,
+        plan_id: str,
+        plan_text: str,
+        result: str,
+    ) -> None:
+        """Final update: replace the plan message with approval + execution result."""
+        success = not result.startswith("ERROR:")
+        icon = "✅" if success else "❌"
+        label = "Completed" if success else "Failed"
+        output = result if len(result) <= 2800 else result[:2800] + "\n…(truncated)"
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"{icon} Plan {label}: {plan_id}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": plan_text},
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Result:*\n```{output}```"},
+            },
+        ]
+        await self._update_message(channel, ts, blocks, text=f"Plan {label}: {plan_id}")
 
     async def notify_action_taken(self, action: str, service: str, reason: str) -> None:
         await self._post_message([

@@ -12,6 +12,7 @@ dependencies = [
     "docker>=7.0.0",
     "fastapi",
     "uvicorn[standard]",
+    "python-multipart",
     "httpx",
     "pyyaml>=6.0",
     "ruamel.yaml>=0.18.0",

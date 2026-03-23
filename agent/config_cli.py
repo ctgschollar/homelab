@@ -13,6 +13,7 @@ Usage:
   python config_cli.py safe-resource remove stack|service|node <value>
   python config_cli.py safe-resource list
   python config_cli.py log-reasoning on|off
+  python config_cli.py pricing <input_per_mtok> <output_per_mtok>
 """
 from __future__ import annotations
 
@@ -26,6 +27,13 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 _VALID_TIERS = {1, 2, 3, "agent"}
 _PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
+
+# Pricing per million tokens (USD). Update when Anthropic changes prices.
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5-20251001":  (1.0,  5.0),
+    "claude-sonnet-4-20250514":   (3.0,  15.0),
+    "claude-opus-4-20250514":     (15.0, 75.0),
+}
 
 yaml = YAML()
 yaml.preserve_quotes = True
@@ -122,6 +130,17 @@ def cmd_set(args: list[str]) -> None:
     data, path = _load()
     old = _get_nested(data, key_path)
     _set_nested(data, key_path, value)
+
+    if key_path == "anthropic.model" and isinstance(value, str):
+        pricing = MODEL_PRICING.get(value)
+        if pricing:
+            data["anthropic"]["input_cost_per_mtok"] = pricing[0]
+            data["anthropic"]["output_cost_per_mtok"] = pricing[1]
+            print(f"  input_cost_per_mtok  → {pricing[0]}")
+            print(f"  output_cost_per_mtok → {pricing[1]}")
+        else:
+            print(f"  WARNING: no pricing known for {value!r} — update MODEL_PRICING in config_cli.py")
+
     _save(data, path)
     print(f"  {key_path}: {old!r} → {value!r}")
 
@@ -187,6 +206,27 @@ def cmd_safe_resource(args: list[str]) -> None:
         sys.exit(1)
 
 
+def cmd_pricing(args: list[str]) -> None:
+    if len(args) < 2:
+        print("Usage: config_cli.py pricing <input_per_mtok> <output_per_mtok>")
+        print("  e.g. config_cli.py pricing 3.0 15.0")
+        sys.exit(1)
+    try:
+        input_cost = float(args[0])
+        output_cost = float(args[1])
+    except ValueError:
+        print("ERROR: costs must be numbers (USD per million tokens)")
+        sys.exit(1)
+    data, path = _load()
+    old_in = data["anthropic"].get("input_cost_per_mtok", "unset")
+    old_out = data["anthropic"].get("output_cost_per_mtok", "unset")
+    data["anthropic"]["input_cost_per_mtok"] = input_cost
+    data["anthropic"]["output_cost_per_mtok"] = output_cost
+    _save(data, path)
+    print(f"  input_cost_per_mtok:  {old_in!r} → {input_cost}")
+    print(f"  output_cost_per_mtok: {old_out!r} → {output_cost}")
+
+
 def cmd_log_reasoning(args: list[str]) -> None:
     if not args or args[0].lower() not in ("on", "off"):
         print("Usage: config_cli.py log-reasoning on|off")
@@ -210,6 +250,7 @@ COMMANDS = {
     "safemode": cmd_safemode,
     "safe-resource": cmd_safe_resource,
     "log-reasoning": cmd_log_reasoning,
+    "pricing": cmd_pricing,
 }
 
 

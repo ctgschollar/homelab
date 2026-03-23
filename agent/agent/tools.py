@@ -1,5 +1,7 @@
 import asyncio
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import docker
@@ -213,6 +215,52 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["message"],
         },
     },
+    {
+        "name": "commit_config_updates",
+        "description": (
+            "Sync config changes made in /opt/homelab back to the dev repo at "
+            "/home/chris/src/homelab, then commit and push as the chris user. "
+            "Use this after editing any file in /opt/homelab so the change is "
+            "persisted in git. Always tier 3 — requires explicit approval."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Git commit message describing what changed.",
+                },
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of repo-relative paths to sync "
+                        "(e.g. ['jellyseerr/docker-compose.yaml']). "
+                        "If omitted, rsync is used to sync all non-excluded files."
+                    ),
+                },
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "docker_stack_rollback",
+        "description": (
+            "Roll back a Docker stack to the image tags that were running before the last deploy. "
+            "Uses the snapshot saved automatically by docker_stack_deploy. "
+            "Calls `docker service update --image` for each service in the stack."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stack_name": {
+                    "type": "string",
+                    "description": "The stack name to roll back (e.g. jellyfin).",
+                },
+            },
+            "required": ["stack_name"],
+        },
+    },
 ]
 
 
@@ -229,6 +277,11 @@ class ToolExecutor:
         self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
+        self._dev_repo_path = config.get("ansible", {}).get("dev_repo_path", "/home/chris/src/homelab")
+        self._dev_repo_user = config.get("ansible", {}).get("dev_repo_user", "chris")
+        default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
+        rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
+        self._rollback_state_path = Path(rollback_path)
 
     def _docker_client(self) -> docker.DockerClient:
         return docker.DockerClient(base_url=self._docker_socket)
@@ -270,11 +323,19 @@ class ToolExecutor:
                     line = raw.decode(errors="replace").rstrip()
                     lines.append(line)
                     _console.print(f"  [dim]│ {line}[/dim]")
-            await asyncio.wait_for(_read(), timeout=timeout)
-            await proc.wait()
+            try:
+                await asyncio.wait_for(_read(), timeout=timeout)
+                await proc.wait()
+            except asyncio.TimeoutError:
+                proc.kill()
+                return f"ERROR: command timed out after {timeout}s"
             return "\n".join(lines)
 
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return f"ERROR: command timed out after {timeout}s"
         return stdout.decode().strip()
 
     # ------------------------------------------------------------------
@@ -367,18 +428,116 @@ class ToolExecutor:
             f"{service_name}={replicas}",
         ])
 
+    def _load_rollback_state(self) -> dict:
+        if self._rollback_state_path.exists():
+            return json.loads(self._rollback_state_path.read_text())
+        return {}
+
+    def _save_rollback_state(self, state: dict) -> None:
+        self._rollback_state_path.write_text(json.dumps(state, indent=2))
+
+    def _snapshot_stack_images(self, stack_name: str) -> dict[str, str]:
+        """Return {service_name: image} for all services in the stack."""
+        client = self._docker_client()
+        services = client.services.list(
+            filters={"label": f"com.docker.stack.namespace={stack_name}"}
+        )
+        snapshot: dict[str, str] = {}
+        for svc in services:
+            image = (
+                svc.attrs.get("Spec", {})
+                .get("TaskTemplate", {})
+                .get("ContainerSpec", {})
+                .get("Image", "")
+            )
+            snapshot[svc.name] = image.split("@")[0]  # strip digest
+        return snapshot
+
     async def _tool_docker_stack_deploy(self, inp: dict) -> str:
         stack_name = inp["stack_name"]
         compose_path = inp.get(
             "compose_path",
             f"{self._repo_path}/{stack_name}/docker-compose.yaml",
         )
+
+        # Snapshot current images before deploying for rollback
+        loop = asyncio.get_event_loop()
+        snapshot = await loop.run_in_executor(None, self._snapshot_stack_images, stack_name)
+        state = self._load_rollback_state()
+        state[stack_name] = {
+            "services": snapshot,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self._save_rollback_state(state)
+
         return await self._run_subprocess([
             "docker", "stack", "deploy",
             "--with-registry-auth",
             "-c", compose_path,
             stack_name,
         ])
+
+    async def _tool_commit_config_updates(self, inp: dict) -> str:
+        message = inp["message"]
+        paths: list[str] | None = inp.get("paths")
+        prod = self._repo_path
+        dev = self._dev_repo_path
+        user = self._dev_repo_user
+
+        if paths:
+            # Sync specific files only
+            copy_args: list[str] = []
+            for p in paths:
+                dest_dir = str(Path(dev) / Path(p).parent)
+                copy_args += [f'mkdir -p "{dest_dir}"', f'cp "{prod}/{p}" "{dev}/{p}"']
+            sync_cmd = " && ".join(copy_args)
+        else:
+            # Full rsync excluding runtime/secret files
+            sync_cmd = (
+                f"rsync -a --exclude='.git' --exclude='*.log' "
+                f"--exclude='rollback_state.json' --exclude='agent_history.json' "
+                f"--exclude='action.log' --exclude='agent/config.yaml' "
+                f'"{prod}/" "{dev}/"'
+            )
+
+        # Commit and push as the configured dev user; no-op if nothing changed
+        git_cmd = (
+            f'su -s /bin/bash {user} -c '
+            f'\'cd "{dev}" && git add -A && '
+            f'git diff --cached --quiet && echo "No changes to commit." || '
+            f'(git commit -m "{message}" && git push)\''
+        )
+
+        result = await self._run_subprocess(
+            ["bash", "-c", f"{sync_cmd} && {git_cmd}"],
+            timeout=60,
+            stream=True,
+        )
+        return result
+
+    async def _tool_docker_stack_rollback(self, inp: dict) -> str:
+        stack_name = inp["stack_name"]
+        state = self._load_rollback_state()
+        entry = state.get(stack_name)
+        if not entry:
+            return f"ERROR: No rollback snapshot found for stack '{stack_name}'."
+
+        services: dict[str, str] = entry["services"]
+        if not services:
+            return f"ERROR: Rollback snapshot for '{stack_name}' is empty."
+
+        timestamp = entry.get("timestamp", "unknown")
+        lines = [f"Rolling back {stack_name} to snapshot from {timestamp}:"]
+        for svc_name, image in services.items():
+            result = await self._run_subprocess([
+                "docker", "service", "update",
+                "--with-registry-auth",
+                "--image", image,
+                svc_name,
+            ])
+            lines.append(f"  {svc_name}: {result.strip()}")
+
+        return "\n".join(lines)
 
     async def _tool_run_ansible_playbook(self, inp: dict) -> str:
         playbook = inp["playbook"]
@@ -409,7 +568,7 @@ class ToolExecutor:
         else:
             args = ["bash", "-c", command]
 
-        return await self._run_subprocess(args, stream=True)
+        return await self._run_subprocess(args, timeout=300, stream=True)
 
     async def _tool_get_prometheus_alerts(self, inp: dict) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:

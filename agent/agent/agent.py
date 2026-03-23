@@ -234,9 +234,14 @@ def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastA
             )
 
             user = payload.get("user", {}).get("name", "slack")
-            reason = "" if approved else f"slack:denied by {user}"
-            if context:
-                reason = context if not reason else f"{reason} — context: {context}"
+            if approved:
+                reason = ""
+            elif context:
+                # Deny with context: cancel and re-run so agent sees the context
+                reason = context
+            else:
+                # Deny without context: stop outright
+                reason = f"slack:denied by {user}"
 
             # Update the original Slack message before resolving the future,
             # so the HTTP call completes before the caller can cancel the server.

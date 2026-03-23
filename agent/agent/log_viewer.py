@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, Label, Static
 from textual.containers import ScrollableContainer
 
 
@@ -70,10 +71,10 @@ class DetailScreen(ModalScreen):
         self._entry = entry
 
     def compose(self) -> ComposeResult:
-        pretty = json.dumps(self._entry, indent=2, default=str)
+        pretty = escape(json.dumps(self._entry, indent=2, default=str))
         yield Header(show_clock=False)
         yield ScrollableContainer(Static(pretty, expand=True))
-        yield Footer()
+        yield Static("[dim] Esc/Q [/dim] Close", id="detail-footer")
 
     def on_mount(self) -> None:
         self.title = f"Entry detail — {self._entry.get('event', '?')}"
@@ -86,7 +87,7 @@ class LogBrowser(App):
     BINDINGS = [
         Binding("up,k", "scroll_up", "Up", show=True),
         Binding("down,j", "scroll_down", "Down", show=True),
-        Binding("enter", "expand", "Expand", show=True),
+        Binding("right", "expand", "Expand", show=True),
         Binding("q,escape", "quit", "Quit", show=True),
     ]
 
@@ -119,9 +120,6 @@ class LogBrowser(App):
 
         if self._entries:
             table.move_cursor(row=0)
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self._open_row(event.cursor_row)
 
     def action_expand(self) -> None:
         table = self.query_one(DataTable)

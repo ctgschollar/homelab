@@ -30,6 +30,7 @@ include = ["cli.py", "config_cli.py", "config.yaml"]
 
 [tool.hatch.envs.default]
 type = "virtual"
+python = "3.12"
 path = ".venv"
 
 [tool.hatch.envs.default.scripts]

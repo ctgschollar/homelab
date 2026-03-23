@@ -6,27 +6,13 @@ set -euo pipefail
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$AGENT_DIR"
 
-echo "==> Checking Python version..."
-PY=$(command -v python3 || true)
-if [ -z "$PY" ]; then
-  echo "ERROR: python3 not found. Install Python 3.12+ and re-run."
-  exit 1
-fi
-
-PY_VER=$("$PY" -c 'import sys; print(sys.version_info[:2])')
-if "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)'; then
-  echo "    Python OK: $($PY --version)"
-else
-  echo "ERROR: Python 3.12+ required, found $($PY --version)."
-  exit 1
-fi
-
 echo "==> Checking hatch..."
 if ! command -v hatch &>/dev/null; then
   echo "    hatch not found — installing via pip..."
-  "$PY" -m pip install --quiet hatch
+  pip install --quiet hatch
 fi
 echo "    hatch OK: $(hatch --version)"
+echo "    (hatch will manage Python 3.12 automatically)"
 
 echo "==> Checking environment variables..."
 MISSING=()

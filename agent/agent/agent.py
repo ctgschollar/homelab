@@ -361,7 +361,22 @@ class HomelabAgent:
         etype = event.get("type", "")
         data = event.get("data", {})
 
-        if etype == "service_down":
+        if etype == "services_down":
+            services = data.get("services", [])
+            lines = []
+            for s in services:
+                lines.append(
+                    f"  - {s['service']}: {s['running']}/{s['desired']} replicas"
+                    + (f" (error: {s['last_error']})" if s.get("last_error") else "")
+                )
+            svc_list = "\n".join(lines)
+            msg = (
+                f"[MONITOR ALERT] {len(services)} service(s) are degraded:\n{svc_list}\n"
+                "Investigate the common root cause and take appropriate action per your autonomy tier rules."
+            )
+            trigger = "monitor:services_down"
+        elif etype == "service_down":
+            # Legacy single-service event (kept for safety)
             svc = data["service"]
             running = data["running"]
             desired = data["desired"]

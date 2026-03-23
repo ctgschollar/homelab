@@ -163,11 +163,44 @@ class PendingApprovals:
 # Slack approval listener (FastAPI)
 # ---------------------------------------------------------------------------
 
-def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
+def build_approval_app(
+    pending: PendingApprovals,
+    slack: "SlackClient",
+    event_queue: asyncio.Queue | None = None,
+) -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
     app = FastAPI()
 
-    # plan_id -> (channel, message_ts) so we can update the message after resolution
-    _message_cache: dict[str, tuple[str, str]] = {}
+    # plan_id -> (channel, ts, plan_text) so we can update the message after resolution
+    _message_cache: dict[str, tuple[str, str, str]] = {}
+
+    @app.post("/slack/events")
+    async def slack_events(request: Request) -> Response:
+        raw_body = await request.body()
+
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+            return Response(content="Invalid signature", status_code=403)
+
+        body = json.loads(raw_body)
+
+        # Slack sends this once when you register the endpoint
+        if body.get("type") == "url_verification":
+            return Response(content=json.dumps({"challenge": body["challenge"]}), media_type="application/json")
+
+        if body.get("type") == "event_callback":
+            event = body.get("event", {})
+            if event.get("type") == "message" and not event.get("bot_id") and not event.get("subtype"):
+                text = event.get("text", "").strip()
+                if text and event_queue is not None:
+                    await event_queue.put({
+                        "source": "slack",
+                        "type": "user_message",
+                        "data": {"message": text},
+                        "timestamp": datetime.now(timezone.utc),
+                    })
+
+        return Response(content="", status_code=200)
 
     @app.post("/slack/interactions")
     async def slack_interactions(request: Request) -> Response:
@@ -577,8 +610,13 @@ class HomelabAgent:
     # Approval listener lifecycle
     # ------------------------------------------------------------------
 
-    async def start_approval_listener(self, host: str, port: int) -> tuple[asyncio.Task, uvicorn.Server]:
-        app = build_approval_app(self._pending, self._slack)
+    async def start_approval_listener(
+        self,
+        host: str,
+        port: int,
+        event_queue: asyncio.Queue | None = None,
+    ) -> tuple[asyncio.Task, uvicorn.Server]:
+        app = build_approval_app(self._pending, self._slack, event_queue)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)
 

@@ -359,7 +359,7 @@ async def amain(args: argparse.Namespace) -> None:
     # Start background tasks
     monitor_task = asyncio.create_task(monitor.run())
     consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
-    listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port)
+    listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue)
 
     bg_tasks = [monitor_task, consumer_task]
     all_tasks = [monitor_task, consumer_task, listener_task]

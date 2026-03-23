@@ -242,6 +242,11 @@ async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue
             found = agent._pending.resolve(plan_id, approved)
             if not found:
                 console.print(f"  [dim]Unknown plan ID: {plan_id}[/dim]")
+            elif approved:
+                # Yield to the event loop so _handle_approval_flow can start
+                # execution and set _active_execution before the next prompt.
+                await asyncio.sleep(0)
+                console.print(f"  [dim]Executing {plan_id}… (type /plans to check progress)[/dim]")
         else:
             # Free-form message: if plans are pending, cancel them so the agent
             # can re-plan with the user's new context.
@@ -272,6 +277,8 @@ async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> Non
                 await agent.chat(event["data"]["message"], trigger="cli:user_message")
             else:
                 await agent.handle_event(event)
+        except Exception as exc:
+            console.print(f"\n[bold red]Event consumer error:[/bold red] {exc}")
         finally:
             event_queue.task_done()
 

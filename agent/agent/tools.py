@@ -250,12 +250,17 @@ class ToolExecutor:
         cwd: str | None = None,
         stream: bool = False,
     ) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=cwd,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+            )
+        except FileNotFoundError:
+            return f"ERROR: command not found: {args[0]}"
+        except OSError as exc:
+            return f"ERROR: failed to start process: {exc}"
 
         if stream:
             lines: list[str] = []

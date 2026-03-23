@@ -253,6 +253,24 @@ TOOL_DEFINITIONS: list[dict] = [
                     "type": "string",
                     "description": "Other tools used outside the agent (git, ansible, python). One sentence. Optional.",
                 },
+                "rejected_plans": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "agent_reasoning": {"type": "string"},
+                        },
+                        "required": ["command", "reason"],
+                    },
+                    "description": (
+                        "Plans that were denied by the user during this incident. "
+                        "REQUIRED if any plans were rejected. "
+                        "Fill from the conversation — do not rely on the action log. "
+                        "Each entry: the proposed command, the user's rejection reason, and the agent's original reasoning."
+                    ),
+                },
                 "pitfalls": {
                     "type": "string",
                     "description": (
@@ -602,7 +620,8 @@ class ToolExecutor:
             pass
         return entries
 
-    async def _tool_write_incident_report(self, inp: dict) -> str:
+    async def _tool_write_incident_report(self, tool_inp: dict) -> str:
+        inp = tool_inp
         title = inp["title"]
         tags = inp["tags"]
         inciting = inp["inciting_incident"]
@@ -632,21 +651,26 @@ class ToolExecutor:
         log_entries = self._slice_action_log(start_time) if start_time_valid else []
         log_json = json.dumps(log_entries, indent=2) if log_entries else "[]"
 
-        # Auto-extract shell commands and rejected plans from the log slice
+        # Auto-extract shell commands from the log slice
         shell_commands = [
             e for e in log_entries
             if e.get("event") == "action_taken" and e.get("tool") == "run_shell"
         ]
-        # Join plan_cancelled with matching plan_proposed to recover the original command
+
+        # Rejected plans: explicit input takes precedence (agent knows from conversation),
+        # supplemented by any plan_cancelled events found in the log slice.
+        explicit_rejected: list[dict] = inp.get("rejected_plans") or []
         proposed_by_id: dict[str, dict] = {
             e["plan_id"]: e for e in log_entries
             if e.get("event") == "plan_proposed" and "plan_id" in e
         }
-        rejected_plans = [
+        log_rejected = [
             {**proposed_by_id.get(e.get("plan_id", ""), {}), **e}
             for e in log_entries
             if e.get("event") == "plan_cancelled"
         ]
+        # Deduplicate: use explicit list if provided, fall back to log extraction
+        rejected_plans = explicit_rejected if explicit_rejected else log_rejected
 
         now = datetime.now(timezone.utc).isoformat()
         tags_str = ", ".join(tags)
@@ -666,13 +690,22 @@ class ToolExecutor:
         if rejected_plans:
             narrative += ["", f"**Rejected Plans**"]
             for i, e in enumerate(rejected_plans, 1):
-                inp = e.get("input", {})
-                cmd = inp.get("command", "")
-                node = inp.get("node", "")
-                reason = e.get("reason", "")
-                agent_reasoning = inp.get("agent_reasoning", "")
-                narrative.append(f"{i}. `{cmd}` on `{node}`")
-                narrative.append(f"   _Agent reasoning:_ {agent_reasoning}")
+                if "input" in e:
+                    # Log-extracted format
+                    plan_inp = e.get("input", {})
+                    cmd = plan_inp.get("command", "")
+                    node = plan_inp.get("node", "")
+                    reason = e.get("reason", "")
+                    agent_reasoning = plan_inp.get("agent_reasoning", "")
+                else:
+                    # Explicit format from agent input
+                    cmd = e.get("command", "")
+                    node = ""
+                    reason = e.get("reason", "")
+                    agent_reasoning = e.get("agent_reasoning", "")
+                narrative.append(f"{i}. `{cmd}`{f' on `{node}`' if node else ''}")
+                if agent_reasoning:
+                    narrative.append(f"   _Agent reasoning:_ {agent_reasoning}")
                 narrative.append(f"   _Rejected:_ {reason}")
 
         narrative += ["", f"**Tools Used**", f"{tools_str}"]

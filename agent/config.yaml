@@ -3,9 +3,10 @@ anthropic:
   model: "claude-sonnet-4-20250514"
 
 slack:
-  webhook_url: "${SLACK_WEBHOOK_URL}"
+  bot_token: "${SLACK_BOT_TOKEN}"
+  signing_secret: "${SLACK_SIGNING_SECRET}"
   channel: "#homelab-alerts"
-  # How long (seconds) to wait for APPROVE/STOP before a tier-2 plan times out.
+  # How long (seconds) to wait for Approve/Deny before a tier-2 plan times out.
   # Timeout = cancelled, not executed.
   veto_window_seconds: 300
 

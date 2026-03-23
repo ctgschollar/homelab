@@ -148,26 +148,88 @@ class PendingApprovals:
 # Slack approval listener (FastAPI)
 # ---------------------------------------------------------------------------
 
-def build_approval_app(pending: PendingApprovals) -> FastAPI:
+def build_approval_app(pending: PendingApprovals, slack: "SlackClient") -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
     app = FastAPI()
 
-    @app.post("/slack")
-    async def slack_webhook(request: Request) -> Response:
-        body = await request.body()
-        text = body.decode().strip()
-        upper = text.upper()
+    # plan_id -> (channel, message_ts) so we can update the message after resolution
+    _message_cache: dict[str, tuple[str, str]] = {}
 
-        for command in ("APPROVE", "STOP"):
-            if upper.startswith(command + " "):
-                plan_id = text[len(command) + 1:].strip().lower()
-                approved = command == "APPROVE"
-                found = pending.resolve(plan_id, approved, reason="slack:STOP" if not approved else "")
-                if found:
-                    action = "approved" if approved else "stopped"
-                    return Response(content=f"Plan {plan_id} {action}.", media_type="text/plain")
-                return Response(content=f"Unknown plan ID: {plan_id}", media_type="text/plain")
+    @app.post("/slack/interactions")
+    async def slack_interactions(request: Request) -> Response:
+        raw_body = await request.body()
 
-        return Response(content="Unrecognised command. Use APPROVE <id> or STOP <id>.", media_type="text/plain")
+        # Verify Slack signature
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+            return Response(content="Invalid signature", status_code=403)
+
+        # Interactions arrive as application/x-www-form-urlencoded with a `payload` field
+        form = await request.form()
+        payload = json.loads(form.get("payload", "{}"))
+        interaction_type = payload.get("type")
+
+        # ---- Button click: open confirmation modal -----------------------
+        if interaction_type == "block_actions":
+            for action in payload.get("actions", []):
+                action_id = action.get("action_id")
+                plan_id = action.get("value", "")
+                if action_id not in ("plan_approve", "plan_deny"):
+                    continue
+
+                approved = action_id == "plan_approve"
+
+                # Cache the channel + ts so we can update after modal submit
+                channel = payload.get("channel", {}).get("id", "")
+                ts = payload.get("message", {}).get("ts", "")
+                if channel and ts:
+                    _message_cache[plan_id] = (channel, ts)
+
+                # Find the plan_text from the original message for the modal
+                plan_text = ""
+                for block in payload.get("message", {}).get("blocks", []):
+                    if block.get("type") == "section":
+                        plan_text = block.get("text", {}).get("text", "")
+                        break
+
+                trigger_id = payload.get("trigger_id", "")
+                modal = slack._approval_modal(plan_id, plan_text, approved)
+                await slack.open_modal(trigger_id, modal)
+
+            return Response(content="", status_code=200)
+
+        # ---- Modal submission: resolve plan ------------------------------
+        if interaction_type == "view_submission":
+            metadata = json.loads(payload.get("view", {}).get("private_metadata", "{}"))
+            plan_id = metadata.get("plan_id", "")
+            approved = metadata.get("approved", False)
+
+            context = (
+                payload
+                .get("view", {})
+                .get("state", {})
+                .get("values", {})
+                .get("context_block", {})
+                .get("context_input", {})
+                .get("value") or ""
+            )
+
+            user = payload.get("user", {}).get("name", "slack")
+            reason = "" if approved else f"slack:denied by {user}"
+            if context:
+                reason = context if not reason else f"{reason} — context: {context}"
+
+            found = pending.resolve(plan_id, approved, reason=reason)
+
+            # Update the original Slack message to show resolution
+            if found and plan_id in _message_cache:
+                channel, ts = _message_cache.pop(plan_id)
+                await slack.resolve_plan_message(channel, ts, plan_id, approved, context, user)
+
+            # Returning None closes the modal with no error
+            return Response(content="", status_code=200)
+
+        return Response(content="", status_code=200)
 
     return app
 
@@ -185,7 +247,8 @@ class HomelabAgent:
 
         slack_cfg = config.get("slack", {})
         self._slack = SlackClient(
-            webhook_url=slack_cfg.get("webhook_url", ""),
+            bot_token=slack_cfg.get("bot_token", ""),
+            signing_secret=slack_cfg.get("signing_secret", ""),
             channel=slack_cfg.get("channel", "#homelab-alerts"),
         )
         self._veto_window: int = slack_cfg.get("veto_window_seconds", 300)
@@ -456,7 +519,7 @@ class HomelabAgent:
     # ------------------------------------------------------------------
 
     async def start_approval_listener(self, host: str, port: int) -> asyncio.Task:
-        app = build_approval_app(self._pending)
+        app = build_approval_app(self._pending, self._slack)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)
 

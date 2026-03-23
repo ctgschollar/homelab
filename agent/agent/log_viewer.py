@@ -63,7 +63,7 @@ def _summary(entry: dict) -> str:
 class DetailScreen(ModalScreen):
     """Full-screen view of a single log entry."""
 
-    BINDINGS = [Binding("escape,q", "dismiss", "Close")]
+    BINDINGS = [Binding("escape,q", "dismiss", "Close", show=True)]
 
     def __init__(self, entry: dict) -> None:
         super().__init__()
@@ -72,7 +72,7 @@ class DetailScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         pretty = json.dumps(self._entry, indent=2, default=str)
         yield Header(show_clock=False)
-        yield ScrollableContainer(Static(f"```json\n{pretty}\n```", expand=True))
+        yield ScrollableContainer(Static(pretty, expand=True))
         yield Footer()
 
     def on_mount(self) -> None:
@@ -84,14 +84,16 @@ class LogBrowser(App):
 
     TITLE = "Homelab Agent — Action Log"
     BINDINGS = [
-        Binding("q,escape", "quit", "Quit"),
-        Binding("enter", "expand", "Expand"),
+        Binding("up,k", "scroll_up", "Up", show=True),
+        Binding("down,j", "scroll_down", "Down", show=True),
+        Binding("enter", "expand", "Expand", show=True),
+        Binding("q,escape", "quit", "Quit", show=True),
     ]
 
     CSS = """
     DataTable { height: 1fr; }
     DetailScreen ScrollableContainer { padding: 1 2; }
-    DetailScreen Static { color: $text; }
+    DetailScreen Static { color: $text; text-wrap: wrap; }
     """
 
     def __init__(self, entries: list[tuple[datetime | None, dict]]) -> None:
@@ -118,11 +120,22 @@ class LogBrowser(App):
         if self._entries:
             table.move_cursor(row=0)
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self._open_row(event.cursor_row)
+
     def action_expand(self) -> None:
         table = self.query_one(DataTable)
-        row_key = table.cursor_row
-        if 0 <= row_key < len(self._entries):
-            _, entry = self._entries[row_key]
+        self._open_row(table.cursor_row)
+
+    def action_scroll_up(self) -> None:
+        self.query_one(DataTable).action_scroll_up()
+
+    def action_scroll_down(self) -> None:
+        self.query_one(DataTable).action_scroll_down()
+
+    def _open_row(self, row_index: int) -> None:
+        if 0 <= row_index < len(self._entries):
+            _, entry = self._entries[row_index]
             self.push_screen(DetailScreen(entry))
 
     def action_quit(self) -> None:

@@ -572,7 +572,7 @@ class HomelabAgent:
     # Approval listener lifecycle
     # ------------------------------------------------------------------
 
-    async def start_approval_listener(self, host: str, port: int) -> asyncio.Task:
+    async def start_approval_listener(self, host: str, port: int) -> tuple[asyncio.Task, uvicorn.Server]:
         app = build_approval_app(self._pending, self._slack)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)
@@ -581,7 +581,7 @@ class HomelabAgent:
             await server.serve()
 
         task = asyncio.create_task(_serve())
-        return task
+        return task, server
 
     async def aclose(self) -> None:
         await self._slack.aclose()

@@ -325,7 +325,7 @@ async def amain(args: argparse.Namespace) -> None:
         if not agent._slack.configured:
             console.print("[bold red]Slack is not configured — set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET.[/bold red]")
             return
-        listener_task = await agent.start_approval_listener(listener_host, listener_port)
+        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port)
         console.print(f"[dim]Approval listener up on {listener_host}:{listener_port}[/dim]")
         plan_id = "test-plan"
         plan_text = "*Tool:* `slack_test`\n*Inputs:*\n  message: This is a test plan from the homelab agent."
@@ -337,7 +337,8 @@ async def amain(args: argparse.Namespace) -> None:
             console.print(f"  [bold green]Approved![/bold green] reason: {reason or '(none)'}")
         else:
             console.print(f"  [bold red]Denied.[/bold red] reason: {reason or '(none)'}")
-        listener_task.cancel()
+        listener_server.should_exit = True
+        await listener_task
         await agent.aclose()
         return
 
@@ -353,8 +354,9 @@ async def amain(args: argparse.Namespace) -> None:
     # Start background tasks
     monitor_task = asyncio.create_task(monitor.run())
     consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
-    listener_task = await agent.start_approval_listener(listener_host, listener_port)
+    listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port)
 
+    bg_tasks = [monitor_task, consumer_task]
     all_tasks = [monitor_task, consumer_task, listener_task]
 
     if args.daemon:
@@ -370,8 +372,9 @@ async def amain(args: argparse.Namespace) -> None:
         except KeyboardInterrupt:
             pass
         finally:
-            for t in all_tasks:
+            for t in bg_tasks:
                 t.cancel()
+            listener_server.should_exit = True
             await asyncio.gather(*all_tasks, return_exceptions=True)
 
     await agent.aclose()

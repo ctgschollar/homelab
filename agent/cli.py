@@ -383,7 +383,6 @@ def main() -> None:
     parser.add_argument("--daemon", action="store_true", help="Run headlessly as a monitor daemon")
     parser.add_argument("--check", action="store_true", help="Print service status and exit")
     parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
-    parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     args = parser.parse_args()
 

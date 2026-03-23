@@ -28,6 +28,13 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 _VALID_TIERS = {1, 2, 3, "agent"}
 _PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
 
+# Pricing per million tokens (USD). Update when Anthropic changes prices.
+MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-haiku-4-5-20251001":  (1.0,  5.0),
+    "claude-sonnet-4-20250514":   (3.0,  15.0),
+    "claude-opus-4-20250514":     (15.0, 75.0),
+}
+
 yaml = YAML()
 yaml.preserve_quotes = True
 
@@ -123,6 +130,17 @@ def cmd_set(args: list[str]) -> None:
     data, path = _load()
     old = _get_nested(data, key_path)
     _set_nested(data, key_path, value)
+
+    if key_path == "anthropic.model" and isinstance(value, str):
+        pricing = MODEL_PRICING.get(value)
+        if pricing:
+            data["anthropic"]["input_cost_per_mtok"] = pricing[0]
+            data["anthropic"]["output_cost_per_mtok"] = pricing[1]
+            print(f"  input_cost_per_mtok  → {pricing[0]}")
+            print(f"  output_cost_per_mtok → {pricing[1]}")
+        else:
+            print(f"  WARNING: no pricing known for {value!r} — update MODEL_PRICING in config_cli.py")
+
     _save(data, path)
     print(f"  {key_path}: {old!r} → {value!r}")
 

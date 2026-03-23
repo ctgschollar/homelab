@@ -344,6 +344,14 @@ class ToolExecutor:
         self._reports_path = Path(self._repo_path) / reports_cfg.get("path", "reports")
         self._action_log_path = Path(config.get("action_log", {}).get("path", "./action.log"))
 
+        # Secrets to scrub from all subprocess output before logging/returning
+        self._secrets: list[str] = [s for s in [self._git_token] if s]
+
+    def _scrub(self, text: str) -> str:
+        for secret in self._secrets:
+            text = text.replace(secret, "***")
+        return text
+
     def _docker_client(self) -> docker.DockerClient:
         return docker.DockerClient(base_url=self._docker_socket)
 
@@ -389,7 +397,7 @@ class ToolExecutor:
             async def _read() -> None:
                 assert proc.stdout is not None
                 async for raw in proc.stdout:
-                    line = raw.decode(errors="replace").rstrip()
+                    line = self._scrub(raw.decode(errors="replace").rstrip())
                     lines.append(line)
                     _console.print(f"  [dim]│ {line}[/dim]")
             try:
@@ -405,7 +413,7 @@ class ToolExecutor:
         except asyncio.TimeoutError:
             proc.kill()
             return f"ERROR: command timed out after {timeout}s"
-        return stdout.decode().strip()
+        return self._scrub(stdout.decode().strip())
 
     # ------------------------------------------------------------------
     # Tool implementations

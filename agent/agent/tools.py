@@ -1,5 +1,7 @@
 import asyncio
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import docker
@@ -213,6 +215,24 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["message"],
         },
     },
+    {
+        "name": "docker_stack_rollback",
+        "description": (
+            "Roll back a Docker stack to the image tags that were running before the last deploy. "
+            "Uses the snapshot saved automatically by docker_stack_deploy. "
+            "Calls `docker service update --image` for each service in the stack."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stack_name": {
+                    "type": "string",
+                    "description": "The stack name to roll back (e.g. jellyfin).",
+                },
+            },
+            "required": ["stack_name"],
+        },
+    },
 ]
 
 
@@ -229,6 +249,8 @@ class ToolExecutor:
         self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
         self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
         self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
+        rollback_path = config.get("rollback", {}).get("state_path", "./rollback_state.json")
+        self._rollback_state_path = Path(rollback_path)
 
     def _docker_client(self) -> docker.DockerClient:
         return docker.DockerClient(base_url=self._docker_socket)
@@ -375,18 +397,79 @@ class ToolExecutor:
             f"{service_name}={replicas}",
         ])
 
+    def _load_rollback_state(self) -> dict:
+        if self._rollback_state_path.exists():
+            return json.loads(self._rollback_state_path.read_text())
+        return {}
+
+    def _save_rollback_state(self, state: dict) -> None:
+        self._rollback_state_path.write_text(json.dumps(state, indent=2))
+
+    def _snapshot_stack_images(self, stack_name: str) -> dict[str, str]:
+        """Return {service_name: image} for all services in the stack."""
+        client = self._docker_client()
+        services = client.services.list(
+            filters={"label": f"com.docker.stack.namespace={stack_name}"}
+        )
+        snapshot: dict[str, str] = {}
+        for svc in services:
+            image = (
+                svc.attrs.get("Spec", {})
+                .get("TaskTemplate", {})
+                .get("ContainerSpec", {})
+                .get("Image", "")
+            )
+            snapshot[svc.name] = image.split("@")[0]  # strip digest
+        return snapshot
+
     async def _tool_docker_stack_deploy(self, inp: dict) -> str:
         stack_name = inp["stack_name"]
         compose_path = inp.get(
             "compose_path",
             f"{self._repo_path}/{stack_name}/docker-compose.yaml",
         )
+
+        # Snapshot current images before deploying for rollback
+        loop = asyncio.get_event_loop()
+        snapshot = await loop.run_in_executor(None, self._snapshot_stack_images, stack_name)
+        if snapshot:
+            state = self._load_rollback_state()
+            state[stack_name] = {
+                "services": snapshot,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            self._save_rollback_state(state)
+
         return await self._run_subprocess([
             "docker", "stack", "deploy",
             "--with-registry-auth",
             "-c", compose_path,
             stack_name,
         ])
+
+    async def _tool_docker_stack_rollback(self, inp: dict) -> str:
+        stack_name = inp["stack_name"]
+        state = self._load_rollback_state()
+        entry = state.get(stack_name)
+        if not entry:
+            return f"ERROR: No rollback snapshot found for stack '{stack_name}'."
+
+        services: dict[str, str] = entry["services"]
+        if not services:
+            return f"ERROR: Rollback snapshot for '{stack_name}' is empty."
+
+        timestamp = entry.get("timestamp", "unknown")
+        lines = [f"Rolling back {stack_name} to snapshot from {timestamp}:"]
+        for svc_name, image in services.items():
+            result = await self._run_subprocess([
+                "docker", "service", "update",
+                "--with-registry-auth",
+                "--image", image,
+                svc_name,
+            ])
+            lines.append(f"  {svc_name}: {result.strip()}")
+
+        return "\n".join(lines)
 
     async def _tool_run_ansible_playbook(self, inp: dict) -> str:
         playbook = inp["playbook"]

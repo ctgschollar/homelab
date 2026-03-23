@@ -87,7 +87,7 @@ class LogBrowser(App):
     BINDINGS = [
         Binding("up,k", "scroll_up", "Up", show=True),
         Binding("down,j", "scroll_down", "Down", show=True),
-        Binding("right", "expand", "Expand", show=True),
+        Binding("e", "expand", "Expand", show=True),
         Binding("q,escape", "quit", "Quit", show=True),
     ]
 

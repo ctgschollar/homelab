@@ -103,15 +103,23 @@ class ActionLogger:
         reasoning: str,
         safe_mode_active: bool,
         effective_tier: int,
+        override_reason: str | None = None,
+        guard_matched_list: str | None = None,
+        guard_matched_pattern: str | None = None,
     ) -> None:
-        await self.log({
+        entry: dict = {
             "event": "tier_reasoning",
             "tool": tool,
             "agent_proposed_tier": agent_proposed_tier,
             "reasoning": reasoning,
             "safe_mode_active": safe_mode_active,
             "effective_tier": effective_tier,
-        })
+        }
+        if override_reason is not None:
+            entry["override_reason"] = override_reason
+            entry["guard_matched_list"] = guard_matched_list
+            entry["guard_matched_pattern"] = guard_matched_pattern
+        await self.log(entry)
 
     async def log_cost(
         self,
@@ -541,7 +549,11 @@ class HomelabAgent:
             target = self._infer_target_resource(block.name, inp)
 
             resolved = self._safety.resolve_tier(
-                block.name, target, agent_tier, agent_reason
+                block.name,
+                target,
+                agent_tier,
+                agent_reason,
+                command=inp.get("command") if block.name == "run_shell" else None,
             )
             resolved_map[block.id] = resolved
 
@@ -556,6 +568,9 @@ class HomelabAgent:
                     reasoning=agent_reason or "",
                     safe_mode_active=resolved.safe_mode_active,
                     effective_tier=resolved.tier,
+                    override_reason=resolved.override_reason,
+                    guard_matched_list=resolved.guard_matched_list,
+                    guard_matched_pattern=resolved.guard_matched_pattern,
                 )
 
             if resolved.tier == 1:

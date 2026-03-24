@@ -40,3 +40,19 @@ path = ".venv"
 agent = "python cli.py {args}"
 config = "python config_cli.py {args}"
 check = "python cli.py --check {args}"
+
+[tool.hatch.envs.test]
+type = "virtual"
+python = "3.12"
+dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "anyio[trio]>=4.0",
+]
+
+[tool.hatch.envs.test.scripts]
+run = "pytest {args}"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

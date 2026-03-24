@@ -1,0 +1,79 @@
+---
+- name: Deploy claude-runner service manager
+  hosts: "{{ target | default('localhost') }}"
+  become: true
+
+  vars:
+    claude_runner_base_dir: /opt/claude-runner
+    claude_user: claude
+    claude_user_home: /home/claude
+
+  tasks:
+    - name: Create claude user
+      user:
+        name: "{{ claude_user }}"
+        home: "{{ claude_user_home }}"
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Add claude user to docker group
+      user:
+        name: "{{ claude_user }}"
+        groups: docker
+        append: yes
+
+    - name: Create /opt/claude-runner base directory
+      file:
+        path: "{{ claude_runner_base_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create env directory for per-instance repo configs
+      file:
+        path: "{{ claude_runner_base_dir }}/env"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install repos.conf (skip if already populated)
+      copy:
+        src: files/repos.conf
+        dest: "{{ claude_runner_base_dir }}/repos.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        force: no
+
+    - name: Install run.sh loop script
+      template:
+        src: templates/run.sh.j2
+        dest: "{{ claude_runner_base_dir }}/run.sh"
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install claude-runner CLI
+      template:
+        src: templates/claude-runner.j2
+        dest: /usr/local/bin/claude-runner
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install systemd template unit
+      template:
+        src: templates/claude-runner@.service.j2
+        dest: /etc/systemd/system/claude-runner@.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload systemd
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

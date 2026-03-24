@@ -1,7 +1,18 @@
 """Tests for Fix 2: Slack Listener Security."""
 from __future__ import annotations
 
+import inspect
+import json
+import re
+import secrets
+import unittest.mock
+
+import httpx
+
+from agent import HomelabAgent
+from agent.agent import PendingApprovals, _resolve_listener_host, build_approval_app
 from agent.slack import SlackClient
+from agent.tools import ToolExecutor
 
 
 class TestSignatureVerificationEnabled:
@@ -29,9 +40,6 @@ class TestSignatureVerificationEnabled:
         assert client_no_token.configured is False
 
 
-from agent.agent import _resolve_listener_host
-
-
 class TestResolveListenerHost:
     def test_listener_no_secret_public_host_forced_to_localhost(self) -> None:
         result = _resolve_listener_host(host="0.0.0.0", signing_secret_configured=False)
@@ -50,15 +58,8 @@ class TestResolveListenerHost:
         assert result == "127.0.0.1"
 
 
-import re
-import inspect
-
-from agent import HomelabAgent
-
-
 class TestPlanIdEntropy:
     def test_plan_id_format_is_8_hex_chars(self) -> None:
-        import secrets
         plan_id = f"plan-{secrets.token_hex(4)}"
         assert re.match(r'^plan-[0-9a-f]{8}$', plan_id), f"Unexpected format: {plan_id}"
 
@@ -67,14 +68,6 @@ class TestPlanIdEntropy:
         source = inspect.getsource(HomelabAgent._handle_approval_flow)
         assert "token_hex(4)" in source, "Expected token_hex(4) in _handle_approval_flow; was token_hex(2) reverted?"
         assert "token_hex(2)" not in source, "Found token_hex(2) in _handle_approval_flow; should be token_hex(4)"
-
-
-import json
-import httpx
-import unittest.mock
-
-from agent.agent import PendingApprovals, build_approval_app
-from agent.slack import SlackClient
 
 
 class TestEndpointSignatureVerification:
@@ -136,10 +129,6 @@ class TestEndpointSignatureVerification:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         assert response.status_code == 200
-
-import unittest.mock
-
-from agent.tools import ToolExecutor
 
 
 class TestSlackNotifyResult:

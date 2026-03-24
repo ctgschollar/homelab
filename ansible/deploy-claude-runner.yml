@@ -1,0 +1,6 @@
+---
+- name: Deploy claude-runner service manager
+  hosts: claude
+  become: true
+  roles:
+    - claude-runner

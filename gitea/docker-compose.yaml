@@ -1,0 +1,93 @@
+version: "3.8"
+
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  gitea-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "20G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_ssd"
+
+services:
+  gitea:
+    image: gitea/gitea:latest
+    env_file: /mnt/cephfs-configs/gitea/.env
+    environment:
+      # --- Server ---
+      GITEA__server__DOMAIN: "gitea.schollar.dev"
+      GITEA__server__ROOT_URL: "https://gitea.schollar.dev"
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__server__DISABLE_SSH: "true"
+
+      # --- Database (shared Postgres on traefik-net) ---
+      GITEA__database__DB_TYPE: "postgres"
+      GITEA__database__HOST: "pg.schollar.dev:5432"
+      GITEA__database__NAME: "gitea"
+      GITEA__database__USER: "gitea"
+      # GITEA__database__PASSWD loaded from .env
+
+      # GITEA__security__SECRET_KEY and GITEA__security__INTERNAL_TOKEN loaded from .env
+
+    volumes:
+      - gitea-data:/data
+
+    networks: [traefik-net]
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.gitea.rule: "Host(`gitea.schollar.dev`)"
+        traefik.http.routers.gitea.entrypoints: "websecure"
+        traefik.http.routers.gitea.tls.certresolver: cf
+        traefik.http.services.gitea.loadbalancer.server.port: "3000"
+
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://gitea.schollar.dev"
+
+  # =============================================================================
+  # act-runner — COMMENTED OUT BY DEFAULT
+  #
+  # Two-step deploy process:
+  #   1. Deploy this stack WITHOUT the runner (just the gitea service above).
+  #   2. Complete the Gitea setup wizard at https://gitea.schollar.dev.
+  #   3. In Gitea: Site Administration → Runners → Create new runner token.
+  #   4. Add the token to /mnt/cephfs-configs/gitea/.env as ACT_RUNNER_TOKEN=<token>.
+  #   5. Uncomment the act-runner service below and redeploy.
+  #
+  # See README.md for full instructions.
+  # =============================================================================
+
+  # act-runner:
+  #   image: gitea/act_runner:latest
+  #   env_file: /mnt/cephfs-configs/gitea/.env
+  #   environment:
+  #     GITEA_INSTANCE_URL: "https://gitea.schollar.dev"
+  #     GITEA_RUNNER_REGISTRATION_TOKEN: "${ACT_RUNNER_TOKEN}"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   networks: [traefik-net]
+  #   deploy:
+  #     mode: replicated
+  #     replicas: 1
+  #     restart_policy:
+  #       condition: on-failure
+  #       delay: 5s
+  #       max_attempts: 0
+  #     placement:
+  #       constraints:
+  #         - "node.labels.linstor==true"

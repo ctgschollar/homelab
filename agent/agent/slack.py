@@ -34,6 +34,10 @@ class SlackClient:
     def configured(self) -> bool:
         return bool(self._token) and not self._token.startswith("${")
 
+    @property
+    def signature_verification_enabled(self) -> bool:
+        return bool(self._secret) and not self._secret.startswith("${")
+
     # ------------------------------------------------------------------
     # Signature verification
     # ------------------------------------------------------------------
@@ -285,8 +289,8 @@ class SlackClient:
             }
         ], text=f"Service recovered: {service}")
 
-    async def notify(self, text: str) -> None:
-        await self._post_message([
+    async def notify(self, text: str) -> dict:
+        return await self._post_message([
             {"type": "section", "text": {"type": "mrkdwn", "text": text}}
         ], text=text)
 

@@ -25,6 +25,13 @@ MAX_HISTORY_TURNS = 20  # trim when history exceeds this many turn-pairs
 console = Console()
 
 
+def _resolve_listener_host(host: str, signing_secret_configured: bool) -> str:
+    if not signing_secret_configured and host == "0.0.0.0":
+        console.print("[bold red]WARNING: Slack signing secret not configured — approval listener restricted to localhost[/bold red]")
+        return "127.0.0.1"
+    return host
+
+
 # ---------------------------------------------------------------------------
 # Action Logger
 # ---------------------------------------------------------------------------
@@ -205,7 +212,7 @@ def build_approval_app(
 
         timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
         signature = request.headers.get("X-Slack-Signature", "")
-        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+        if slack.signature_verification_enabled and not slack.verify_signature(timestamp, raw_body, signature):
             return Response(content="Invalid signature", status_code=403)
 
         body = json.loads(raw_body)
@@ -237,7 +244,7 @@ def build_approval_app(
         signature = request.headers.get("X-Slack-Signature", "")
         console.print(f"  [dim]Slack interaction received — timestamp={timestamp!r} sig={signature[:20]!r}…[/dim]")
 
-        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+        if slack.signature_verification_enabled and not slack.verify_signature(timestamp, raw_body, signature):
             console.print("  [bold red]Slack signature verification failed[/bold red]")
             return Response(content="Invalid signature", status_code=403)
 
@@ -629,7 +636,7 @@ class HomelabAgent:
         resolved: Any,
         trigger: str,
     ) -> str:
-        plan_id = f"plan-{secrets.token_hex(2)}"
+        plan_id = f"plan-{secrets.token_hex(4)}"
         tool_input = block.input or {}
         plan_text = self._format_plan(block.name, tool_input)
         veto_seconds = self._veto_window if resolved.tier == 2 else None
@@ -799,6 +806,7 @@ class HomelabAgent:
         port: int,
         event_queue: asyncio.Queue | None = None,
     ) -> tuple[asyncio.Task, uvicorn.Server]:
+        host = _resolve_listener_host(host, self._slack.signature_verification_enabled)
         app = build_approval_app(self._pending, self._slack, event_queue)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)

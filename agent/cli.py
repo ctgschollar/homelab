@@ -15,15 +15,14 @@ import argparse
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
-import os
-import re
 import sys
 
 import httpx
-import yaml
+from pydantic import ValidationError
 from rich.console import Console
 
 from agent.agent import ActionLogger, HomelabAgent
+from agent.config_schema import AgentConfig, load_agent_config
 from agent.log_viewer import browse_log
 from agent.monitor import MonitorDaemon
 
@@ -43,26 +42,24 @@ async def _fetch_zar_rate() -> float | None:
 # Config loading
 # ---------------------------------------------------------------------------
 
-def load_config(path: str) -> dict:
-    with open(path) as f:
-        raw = f.read()
-
-    def _sub(m: re.Match) -> str:
-        var = m.group(1)
-        return os.environ.get(var, m.group(0))
-
-    raw = re.sub(r"\$\{([^}]+)\}", _sub, raw)
-    return yaml.safe_load(raw)
+def load_config(path: str) -> AgentConfig:
+    try:
+        return load_agent_config(path)
+    except ValidationError as e:
+        for err in e.errors():
+            loc = " → ".join(str(x) for x in err["loc"])
+            console.print(f"[bold red]CONFIG ERROR:[/bold red] {loc}: {err['msg']}")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
 # Service status check (--check)
 # ---------------------------------------------------------------------------
 
-async def run_check(config: dict) -> None:
+async def run_check(config: AgentConfig) -> None:
     import docker
 
-    socket = config.get("docker", {}).get("socket", "unix:///var/run/docker.sock")
+    socket = config.docker.socket
     loop = asyncio.get_event_loop()
 
     def _list() -> list[dict]:
@@ -303,7 +300,7 @@ async def cost_reporter(agent: HomelabAgent, log_path: str) -> None:
             await agent._slack.notify(format_cost_report("Yearly", str(year_start.year), summary, zar_rate))
 
 
-async def run_repl(agent: HomelabAgent, config: dict, event_queue: asyncio.Queue, log_path: str) -> None:
+async def run_repl(agent: HomelabAgent, config: AgentConfig, event_queue: asyncio.Queue, log_path: str) -> None:
     loop = asyncio.get_event_loop()
     console.print("[bold cyan]Homelab Agent[/bold cyan] — type /quit to exit, /help for commands.")
 
@@ -434,14 +431,13 @@ async def amain(args: argparse.Namespace) -> None:
 
     agent = HomelabAgent(config)
 
-    log_path = config.get("action_log", {}).get("path", "./action.log")
+    log_path = config.action_log.path
     action_logger = ActionLogger(log_path)
 
     monitor = MonitorDaemon(config, event_queue, action_logger)
 
-    listener_cfg = config.get("approval_listener", {})
-    listener_host = listener_cfg.get("host", "0.0.0.0")
-    listener_port = int(listener_cfg.get("port", 8765))
+    listener_host = config.approval_listener.host
+    listener_port = config.approval_listener.port
 
     # Slack test mode
     if args.test_slack:

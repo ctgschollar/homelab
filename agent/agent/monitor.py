@@ -8,17 +8,18 @@ import docker
 
 if TYPE_CHECKING:
     from .agent import ActionLogger
+    from .config_schema import AgentConfig
 
 
 class MonitorDaemon:
     def __init__(
         self,
-        config: dict,
+        config: AgentConfig,
         event_queue: asyncio.Queue,
         action_logger: ActionLogger,
     ) -> None:
-        self._poll_interval: int = config.get("monitor", {}).get("poll_interval", 30)
-        self._docker_socket: str = config.get("docker", {}).get("socket", "unix:///var/run/docker.sock")
+        self._poll_interval: int = config.monitor.poll_interval
+        self._docker_socket: str = config.docker.socket
         self._event_queue = event_queue
         self._logger = action_logger
 

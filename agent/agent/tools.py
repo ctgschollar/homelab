@@ -2,11 +2,14 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import docker
 import httpx
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from .config_schema import AgentConfig
 
 _console = Console()
 
@@ -351,24 +354,21 @@ TOOL_DEFINITIONS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 class ToolExecutor:
-    def __init__(self, config: dict, slack_client: Any) -> None:
+    def __init__(self, config: "AgentConfig", slack_client: Any) -> None:
         self._config = config
         self._slack = slack_client
-        self._docker_socket = config.get("docker", {}).get("socket", "unix:///var/run/docker.sock")
-        self._ssh_key = config.get("swarm", {}).get("ssh_key", "/root/.ssh/ansible_ssh_key")
-        self._ssh_user = config.get("swarm", {}).get("ssh_user", "root")
-        self._repo_path = config.get("ansible", {}).get("repo_path", "/opt/homelab")
-        self._inventory = config.get("ansible", {}).get("inventory", "/opt/homelab/ansible/inventory.yml")
-        self._git_token = config.get("ansible", {}).get("git_token", "")
-        self._git_author_name = config.get("ansible", {}).get("git_author_name", "Homelab Agent")
-        self._git_author_email = config.get("ansible", {}).get("git_author_email", "agent@schollar.dev")
-        default_rollback_path = str(Path(__file__).parent.parent / "rollback_state.json")
-        rollback_path = config.get("rollback", {}).get("state_path", default_rollback_path)
-        self._rollback_state_path = Path(rollback_path)
+        self._docker_socket = config.docker.socket
+        self._ssh_key = config.swarm.ssh_key
+        self._ssh_user = config.swarm.ssh_user
+        self._repo_path = config.ansible.repo_path
+        self._inventory = config.ansible.inventory
+        self._git_token = config.ansible.git_token or ""
+        self._git_author_name = config.ansible.git_author_name
+        self._git_author_email = config.ansible.git_author_email
+        self._rollback_state_path = Path(config.rollback.state_path)
 
-        reports_cfg = config.get("reports", {})
-        self._reports_path = Path(self._repo_path) / reports_cfg.get("path", "reports")
-        self._action_log_path = Path(config.get("action_log", {}).get("path", "./action.log"))
+        self._reports_path = Path(self._repo_path) / config.reports.path
+        self._action_log_path = Path(config.action_log.path)
 
         # Secrets to scrub from all subprocess output before logging/returning
         self._secrets: list[str] = [s for s in [self._git_token] if s]

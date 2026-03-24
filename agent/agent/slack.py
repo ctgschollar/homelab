@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from typing import Optional
 
 import httpx
 from rich.console import Console
@@ -23,8 +24,8 @@ _API = "https://slack.com/api"
 
 
 class SlackClient:
-    def __init__(self, bot_token: str, signing_secret: str, channel: str) -> None:
-        self._token = bot_token
+    def __init__(self, bot_token: Optional[str], signing_secret: Optional[str], channel: str) -> None:
+        self._token = bot_token or ""
         self._secret = signing_secret
         self._channel = channel
         self._http = httpx.AsyncClient(timeout=10.0)
@@ -39,6 +40,8 @@ class SlackClient:
 
     def verify_signature(self, timestamp: str, raw_body: bytes, signature: str) -> bool:
         """Return True if the request signature from Slack is valid."""
+        if self._secret is None:
+            return False
         if abs(time.time() - float(timestamp)) > 300:
             return False
         base = f"v0:{timestamp}:{raw_body.decode()}"

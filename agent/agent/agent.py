@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Response
 from rich.console import Console
 from rich.text import Text
 
+from .config_schema import AgentConfig
 from .prompts import build_system_prompt
 from .safety import SafetyPolicy
 from .slack import SlackClient
@@ -321,30 +322,26 @@ def build_approval_app(
 # ---------------------------------------------------------------------------
 
 class HomelabAgent:
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: AgentConfig) -> None:
         self._config = config
-        anthropic_cfg = config.get("anthropic", {})
-        self._model: str = anthropic_cfg.get("model", "claude-sonnet-4-20250514")
-        self._client = anthropic.AsyncAnthropic(api_key=anthropic_cfg.get("api_key", ""))
-        self._input_cost_per_mtok: float = anthropic_cfg.get("input_cost_per_mtok", 3.0)
-        self._output_cost_per_mtok: float = anthropic_cfg.get("output_cost_per_mtok", 15.0)
+        self._model: str = config.anthropic.model
+        self._client = anthropic.AsyncAnthropic(api_key=config.anthropic.api_key or "")
+        self._input_cost_per_mtok: float = config.anthropic.input_cost_per_mtok
+        self._output_cost_per_mtok: float = config.anthropic.output_cost_per_mtok
 
-        slack_cfg = config.get("slack", {})
         self._slack = SlackClient(
-            bot_token=slack_cfg.get("bot_token", ""),
-            signing_secret=slack_cfg.get("signing_secret", ""),
-            channel=slack_cfg.get("channel", "#homelab-alerts"),
+            bot_token=config.slack.bot_token,
+            signing_secret=config.slack.signing_secret,
+            channel=config.slack.channel,
         )
-        self._veto_window: int = slack_cfg.get("veto_window_seconds", 300)
+        self._veto_window: int = config.slack.veto_window_seconds
 
-        log_path = config.get("action_log", {}).get("path", "./action.log")
-        self._logger = ActionLogger(log_path)
+        self._logger = ActionLogger(config.action_log.path)
         self._safety = SafetyPolicy(config)
         self._tools = ToolExecutor(config, self._slack)
         self._pending = PendingApprovals()
 
-        history_path = config.get("history", {}).get("path", str(Path(__file__).parent.parent / "agent_history.json"))
-        self._history_path = Path(history_path)
+        self._history_path = Path(config.history.path)
         self._history: list[dict] = self._load_history()
         self._last_cost_breakdown: str = ""
         self._zar_rate: float | None = None

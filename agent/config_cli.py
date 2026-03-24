@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Config editor for the homelab agent. Preserves comments and env-var placeholders.
+Config editor for the homelab agent.
 
 Usage:
   python config_cli.py show
@@ -14,19 +14,22 @@ Usage:
   python config_cli.py safe-resource list
   python config_cli.py log-reasoning on|off
   python config_cli.py pricing <input_per_mtok> <output_per_mtok>
+  python config_cli.py validate
 """
 from __future__ import annotations
 
-import re
 import sys
+import warnings
 from pathlib import Path
 
-from ruamel.yaml import YAML
+import yaml
+from pydantic import ValidationError
+
+from agent.config_schema import AgentConfig, load_agent_config
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 _VALID_TIERS = {1, 2, 3, "agent"}
-_PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
 
 # Pricing per million tokens (USD). Update when Anthropic changes prices.
 MODEL_PRICING: dict[str, tuple[float, float]] = {
@@ -35,24 +38,20 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-20250514":     (15.0, 75.0),
 }
 
-yaml = YAML()
-yaml.preserve_quotes = True
-
 
 # ---------------------------------------------------------------------------
 # Load / save helpers
 # ---------------------------------------------------------------------------
 
-def _load() -> tuple[object, Path]:
-    path = CONFIG_PATH
-    with open(path) as f:
-        data = yaml.load(f)
-    return data, path
+def _load_raw() -> dict:
+    with open(CONFIG_PATH) as f:
+        return yaml.safe_load(f) or {}
 
 
-def _save(data: object, path: Path) -> None:
-    with open(path, "w") as f:
-        yaml.dump(data, f)
+def _save_raw(data: dict) -> None:
+    AgentConfig.model_validate(data)
+    with open(CONFIG_PATH, "w") as f:
+        yaml.dump(data, f, sort_keys=False, default_flow_style=False)
 
 
 def _get_nested(data: dict, key_path: str) -> object:
@@ -72,9 +71,6 @@ def _set_nested(data: dict, key_path: str, value: object) -> None:
 
 
 def _coerce_value(raw: str) -> object:
-    """Parse a string CLI value into bool / int / str without touching placeholders."""
-    if _PLACEHOLDER_RE.fullmatch(raw):
-        return raw  # preserve as-is
     low = raw.lower()
     if low in ("true", "on"):
         return True
@@ -84,7 +80,7 @@ def _coerce_value(raw: str) -> object:
         return int(raw)
     except ValueError:
         pass
-    return raw  # string
+    return raw
 
 
 def _validate_tier(value: object) -> None:
@@ -98,15 +94,15 @@ def _validate_tier(value: object) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_show(_args: list[str]) -> None:
-    data, _ = _load()
-    yaml.dump(data, sys.stdout)
+    data = _load_raw()
+    yaml.dump(data, sys.stdout, sort_keys=False, default_flow_style=False)
 
 
 def cmd_get(args: list[str]) -> None:
     if not args:
         print("Usage: config_cli.py get <key.path>")
         sys.exit(1)
-    data, _ = _load()
+    data = _load_raw()
     value = _get_nested(data, args[0])
     print(value)
 
@@ -118,16 +114,14 @@ def cmd_set(args: list[str]) -> None:
     key_path, raw_value = args[0], args[1]
     value = _coerce_value(raw_value)
 
-    # Validate if it looks like a tier key
     if "tool_tiers" in key_path:
-        # value should be 1, 2, 3, or "agent"
         if isinstance(value, str) and value != "agent":
             print(f"ERROR: tier string must be 'agent', got {value!r}")
             sys.exit(1)
         if isinstance(value, int):
             _validate_tier(value)
 
-    data, path = _load()
+    data = _load_raw()
     old = _get_nested(data, key_path)
     _set_nested(data, key_path, value)
 
@@ -141,7 +135,7 @@ def cmd_set(args: list[str]) -> None:
         else:
             print(f"  WARNING: no pricing known for {value!r} — update MODEL_PRICING in config_cli.py")
 
-    _save(data, path)
+    _save_raw(data)
     print(f"  {key_path}: {old!r} → {value!r}")
 
 
@@ -150,10 +144,10 @@ def cmd_safemode(args: list[str]) -> None:
         print("Usage: config_cli.py safemode on|off")
         sys.exit(1)
     enabled = args[0].lower() == "on"
-    data, path = _load()
+    data = _load_raw()
     old = data["safety"]["global_safe_mode"]
     data["safety"]["global_safe_mode"] = enabled
-    _save(data, path)
+    _save_raw(data)
     state = "ON" if enabled else "OFF"
     print(f"  global_safe_mode: {old!r} → {enabled!r}  ({state})")
 
@@ -164,7 +158,7 @@ def cmd_safe_resource(args: list[str]) -> None:
         sys.exit(1)
 
     action = args[0].lower()
-    data, path = _load()
+    data = _load_raw()
     resources = data["safety"]["safe_mode_resources"]
 
     if action == "list":
@@ -189,7 +183,7 @@ def cmd_safe_resource(args: list[str]) -> None:
         if value not in lst:
             lst.append(value)
             resources[kind] = lst
-            _save(data, path)
+            _save_raw(data)
             print(f"  Added {value!r} to {kind}.")
         else:
             print(f"  {value!r} already in {kind}.")
@@ -197,7 +191,7 @@ def cmd_safe_resource(args: list[str]) -> None:
         if value in lst:
             lst.remove(value)
             resources[kind] = lst
-            _save(data, path)
+            _save_raw(data)
             print(f"  Removed {value!r} from {kind}.")
         else:
             print(f"  {value!r} not found in {kind}.")
@@ -217,12 +211,12 @@ def cmd_pricing(args: list[str]) -> None:
     except ValueError:
         print("ERROR: costs must be numbers (USD per million tokens)")
         sys.exit(1)
-    data, path = _load()
+    data = _load_raw()
     old_in = data["anthropic"].get("input_cost_per_mtok", "unset")
     old_out = data["anthropic"].get("output_cost_per_mtok", "unset")
     data["anthropic"]["input_cost_per_mtok"] = input_cost
     data["anthropic"]["output_cost_per_mtok"] = output_cost
-    _save(data, path)
+    _save_raw(data)
     print(f"  input_cost_per_mtok:  {old_in!r} → {input_cost}")
     print(f"  output_cost_per_mtok: {old_out!r} → {output_cost}")
 
@@ -232,11 +226,26 @@ def cmd_log_reasoning(args: list[str]) -> None:
         print("Usage: config_cli.py log-reasoning on|off")
         sys.exit(1)
     enabled = args[0].lower() == "on"
-    data, path = _load()
+    data = _load_raw()
     old = data["safety"]["log_agent_tier_reasoning"]
     data["safety"]["log_agent_tier_reasoning"] = enabled
-    _save(data, path)
+    _save_raw(data)
     print(f"  log_agent_tier_reasoning: {old!r} → {enabled!r}")
+
+
+def cmd_validate(_args: list[str]) -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            load_agent_config(str(CONFIG_PATH))
+        except ValidationError as e:
+            for err in e.errors():
+                loc = " → ".join(str(x) for x in err["loc"])
+                print(f"CONFIG ERROR: {loc}: {err['msg']}")
+            sys.exit(1)
+    for w in caught:
+        print(f"CONFIG WARNING: {w.message}")
+    print("Config is valid.")
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +260,7 @@ COMMANDS = {
     "safe-resource": cmd_safe_resource,
     "log-reasoning": cmd_log_reasoning,
     "pricing": cmd_pricing,
+    "validate": cmd_validate,
 }
 
 

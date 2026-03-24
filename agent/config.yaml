@@ -1,13 +1,10 @@
 anthropic:
-  api_key: "${ANTHROPIC_API_KEY}"
   model: "claude-sonnet-4-20250514"
   # Pricing per million tokens (USD) — update with: python config_cli.py pricing <input> <output>
   input_cost_per_mtok: 3.0
   output_cost_per_mtok: 15.0
 
 slack:
-  bot_token: "${SLACK_BOT_TOKEN}"
-  signing_secret: "${SLACK_SIGNING_SECRET}"
   channel: "#homelab"
   # How long (seconds) to wait for Approve/Deny before a tier-2 plan times out.
   # Timeout = cancelled, not executed.
@@ -35,8 +32,6 @@ edge:
 ansible:
   repo_path: "/opt/homelab"
   inventory: "/opt/homelab/ansible/inventory.yml"
-  # GitHub PAT used by the agent to commit and push changes over HTTPS
-  git_token: "${AGENT_GITHUB_TOKEN}"
   git_author_name: "Homelab Agent"
   git_author_email: "agent@schollar.dev"
 
@@ -93,7 +88,7 @@ safety:
     run_ansible_playbook:    2
     run_shell:               "agent"
     write_file:              3
-    commit_config_updates:   3
+    # commit_config_updates tier-2 entry removed — tier-3 is the correct value
 
   # When a tool is tagged "agent" and the agent selects a tier, log its
   # reasoning in the action log. Toggle with: python config_cli.py log-reasoning on|off
@@ -142,3 +137,15 @@ approval_listener:
   # APPROVE <plan_id> or STOP <plan_id>
   host: "0.0.0.0"
   port: 8765
+
+# -----------------------------------------------------------------------
+# Conversation history
+# -----------------------------------------------------------------------
+history:
+  path: "./agent_history.json"
+
+# -----------------------------------------------------------------------
+# Rollback state
+# -----------------------------------------------------------------------
+rollback:
+  state_path: "./rollback_state.json"

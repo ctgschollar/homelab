@@ -25,6 +25,13 @@ MAX_HISTORY_TURNS = 20  # trim when history exceeds this many turn-pairs
 console = Console()
 
 
+def _resolve_listener_host(host: str, signing_secret_configured: bool) -> str:
+    if not signing_secret_configured and host == "0.0.0.0":
+        console.print("[bold red]WARNING: Slack signing secret not configured — approval listener restricted to localhost[/bold red]")
+        return "127.0.0.1"
+    return host
+
+
 # ---------------------------------------------------------------------------
 # Action Logger
 # ---------------------------------------------------------------------------
@@ -799,6 +806,7 @@ class HomelabAgent:
         port: int,
         event_queue: asyncio.Queue | None = None,
     ) -> tuple[asyncio.Task, uvicorn.Server]:
+        host = _resolve_listener_host(host, self._slack.signature_verification_enabled)
         app = build_approval_app(self._pending, self._slack, event_queue)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)

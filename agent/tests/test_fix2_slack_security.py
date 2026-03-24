@@ -27,3 +27,24 @@ class TestSignatureVerificationEnabled:
 
         client_no_token = SlackClient(bot_token=None, signing_secret="mysecret", channel="#ops")
         assert client_no_token.configured is False
+
+
+from agent.agent import _resolve_listener_host
+
+
+class TestResolveListenerHost:
+    def test_listener_no_secret_public_host_forced_to_localhost(self) -> None:
+        result = _resolve_listener_host(host="0.0.0.0", signing_secret_configured=False)
+        assert result == "127.0.0.1"
+
+    def test_listener_with_secret_public_host_unchanged(self) -> None:
+        result = _resolve_listener_host(host="0.0.0.0", signing_secret_configured=True)
+        assert result == "0.0.0.0"
+
+    def test_listener_no_secret_localhost_host_unchanged(self) -> None:
+        result = _resolve_listener_host(host="127.0.0.1", signing_secret_configured=False)
+        assert result == "127.0.0.1"
+
+    def test_listener_with_secret_localhost_host_unchanged(self) -> None:
+        result = _resolve_listener_host(host="127.0.0.1", signing_secret_configured=True)
+        assert result == "127.0.0.1"

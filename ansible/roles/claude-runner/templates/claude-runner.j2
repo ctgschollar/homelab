@@ -1,0 +1,96 @@
+#!/bin/bash
+# claude-runner — manage Claude Code loop runner instances
+# Managed by Ansible — do not edit directly.
+# Source: ansible/roles/claude-runner/templates/claude-runner.j2
+
+set -euo pipefail
+
+REPOS_CONF="{{ claude_runner_base_dir }}/repos.conf"
+ENV_DIR="{{ claude_runner_base_dir }}/env"
+
+usage() {
+    cat <<EOF
+Usage: claude-runner <command> [args]
+
+Commands:
+  add <name> <path>   Register a repo and start its runner service
+  remove <name>       Stop and remove a runner
+  list                Show all runners and their service status
+  status <name>       Tail the journal for a runner
+EOF
+    exit 1
+}
+
+cmd_add() {
+    local name="${1:?add requires a name}"
+    local path="${2:?add requires a path}"
+
+    if ! [[ -d "$path" ]]; then
+        echo "Error: directory does not exist: $path" >&2
+        exit 1
+    fi
+
+    # Canonicalize path
+    path="$(realpath "$path")"
+
+    # Reject duplicate names
+    if grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
+        echo "Error: '${name}' already exists in ${REPOS_CONF}" >&2
+        exit 1
+    fi
+
+    echo "${name}=${path}" >> "$REPOS_CONF"
+    echo "REPO_PATH=${path}" > "${ENV_DIR}/${name}"
+    chmod 644 "${ENV_DIR}/${name}"
+
+    systemctl daemon-reload
+    systemctl enable --now "claude-runner@${name}.service"
+    echo "Started claude-runner@${name} for ${path}"
+}
+
+cmd_remove() {
+    local name="${1:?remove requires a name}"
+
+    if systemctl is-active --quiet "claude-runner@${name}.service" 2>/dev/null; then
+        systemctl stop "claude-runner@${name}.service"
+    fi
+    systemctl disable "claude-runner@${name}.service" 2>/dev/null || true
+
+    # Remove from repos.conf
+    sed -i "/^${name}=/d" "$REPOS_CONF"
+
+    # Remove env file
+    rm -f "${ENV_DIR}/${name}"
+
+    echo "Removed claude-runner@${name}"
+}
+
+cmd_list() {
+    if [[ ! -s "$REPOS_CONF" ]]; then
+        echo "No repos configured. Use: claude-runner add <name> <path>"
+        return
+    fi
+
+    printf "%-20s %-40s %s\n" "NAME" "PATH" "STATUS"
+    printf "%-20s %-40s %s\n" "----" "----" "------"
+
+    while IFS='=' read -r name path; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        local status
+        status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
+        printf "%-20s %-40s %s\n" "$name" "$path" "$status"
+    done < "$REPOS_CONF"
+}
+
+cmd_status() {
+    local name="${1:?status requires a name}"
+    exec journalctl -u "claude-runner@${name}.service" -f --output short-iso
+}
+
+case "${1:-}" in
+    add)    shift; cmd_add "$@" ;;
+    remove) shift; cmd_remove "$@" ;;
+    list)   cmd_list ;;
+    status) shift; cmd_status "$@" ;;
+    *)      usage ;;
+esac

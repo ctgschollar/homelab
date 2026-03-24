@@ -892,5 +892,8 @@ class ToolExecutor:
 
     async def _tool_slack_notify(self, inp: dict) -> str:
         message = inp["message"]
-        await self._slack.notify(message)
+        result = await self._slack.notify(message)
+        if result is None or not result.get("ok"):
+            error = result.get("error", "unknown") if result else "slack not configured"
+            return f"ERROR: Slack notification failed: {error}"
         return "Slack notification sent."

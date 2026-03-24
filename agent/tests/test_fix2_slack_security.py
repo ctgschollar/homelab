@@ -136,3 +136,24 @@ class TestEndpointSignatureVerification:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         assert response.status_code == 200
+
+import unittest.mock
+
+from agent.tools import ToolExecutor
+
+
+class TestSlackNotifyResult:
+    async def test_notify_returns_error_when_not_configured(self) -> None:
+        slack = SlackClient(bot_token=None, signing_secret=None, channel="#ops")
+        executor = ToolExecutor.__new__(ToolExecutor)
+        executor._slack = slack
+        result = await executor._tool_slack_notify({"message": "hello"})
+        assert result.startswith("ERROR:")
+
+    async def test_notify_returns_success_string_when_api_ok(self) -> None:
+        slack = SlackClient(bot_token=None, signing_secret=None, channel="#ops")
+        executor = ToolExecutor.__new__(ToolExecutor)
+        executor._slack = slack
+        with unittest.mock.patch.object(slack, "_post_message", return_value={"ok": True}):
+            result = await executor._tool_slack_notify({"message": "hello"})
+        assert result == "Slack notification sent."

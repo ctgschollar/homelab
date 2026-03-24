@@ -34,6 +34,10 @@ class SlackClient:
     def configured(self) -> bool:
         return bool(self._token) and not self._token.startswith("${")
 
+    @property
+    def signature_verification_enabled(self) -> bool:
+        return bool(self._secret) and not self._secret.startswith("${")
+
     # ------------------------------------------------------------------
     # Signature verification
     # ------------------------------------------------------------------

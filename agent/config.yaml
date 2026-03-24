@@ -94,6 +94,13 @@ safety:
   # reasoning in the action log. Toggle with: python config_cli.py log-reasoning on|off
   log_agent_tier_reasoning: true
 
+  # Optional additional shell command guard patterns. Each entry is a Python
+  # regex string. Patterns here are ADDED to the hardcoded defaults; they
+  # never replace them.
+  shell_command_guards:
+    force_tier3: []  # e.g. ['my-dangerous-script\.sh']
+    force_tier2: []  # e.g. ['my-deploy\.sh']
+
 # -----------------------------------------------------------------------
 # Incident reports
 # -----------------------------------------------------------------------

@@ -62,11 +62,17 @@ class SafeModeResourcesConfig(BaseModel):
     nodes: list[str] = []
 
 
+class ShellCommandGuardsConfig(BaseModel):
+    force_tier3: list[str] = []
+    force_tier2: list[str] = []
+
+
 class SafetyConfig(BaseModel):
     global_safe_mode: bool
     safe_mode_resources: SafeModeResourcesConfig
     tool_tiers: dict[str, TierValue]
     log_agent_tier_reasoning: bool
+    shell_command_guards: ShellCommandGuardsConfig = Field(default_factory=ShellCommandGuardsConfig)
 
 
 class ReportsConfig(BaseModel):

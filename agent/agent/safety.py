@@ -60,10 +60,13 @@ _SHELL_FORCE_TIER2: list[re.Pattern] = [
 
 @dataclass
 class ResolvedTier:
-    tier: int                    # effective tier after all overrides (1, 2, or 3)
-    safe_mode_active: bool       # true if safe mode forced the tier up
-    original_tier: int | None    # tier before safe mode override (None if not overridden)
-    agent_reasoning: str | None  # set when tool is "agent"-discretion
+    tier: int                       # effective tier after all overrides (1, 2, or 3)
+    safe_mode_active: bool          # true if safe mode forced the tier up
+    original_tier: int | None       # tier before safe mode override (None if not overridden)
+    agent_reasoning: str | None     # set when tool is "agent"-discretion
+    override_reason: str | None = None        # e.g. "shell_pattern_guard"
+    guard_matched_list: str | None = None     # "force_tier3" or "force_tier2"
+    guard_matched_pattern: str | None = None  # the regex pattern string that matched
 
 
 class SafetyPolicy:
@@ -112,7 +115,7 @@ class SafetyPolicy:
         self._last_guard_match = None
         return agent_proposed_tier
 
-    def _base_tier(self, tool_name: str, agent_proposed_tier: int | None) -> int:
+    def _base_tier(self, tool_name: str, agent_proposed_tier: int | None, command: str | None = None) -> int:
         """Return the raw tier before safe-mode overrides."""
         configured = self.tool_tiers.get(tool_name)
 
@@ -120,7 +123,9 @@ class SafetyPolicy:
             if configured in (1, 2, 3):
                 return int(configured)
             if configured == "agent":
-                # Agent discretion — use agent's proposal or fall back to 2
+                # Agent discretion — apply pattern guards for run_shell
+                if tool_name == "run_shell" and agent_proposed_tier is not None and command is not None:
+                    return self._check_shell_command(command, agent_proposed_tier)
                 return agent_proposed_tier if agent_proposed_tier is not None else 2
 
         return _DEFAULT_TIERS.get(tool_name, 2)
@@ -131,6 +136,7 @@ class SafetyPolicy:
         target_resource: str | None = None,
         agent_proposed_tier: int | None = None,
         agent_reasoning: str | None = None,
+        command: str | None = None,
     ) -> ResolvedTier:
         """Resolve the effective execution tier for a tool call.
 
@@ -138,10 +144,14 @@ class SafetyPolicy:
         1. global_safe_mode → tier 3, log original
         2. target_resource in safe_mode_resources → tier 3, log original
         3. explicit numeric value in tool_tiers config → use it
-        4. tool_tiers value is "agent" → use agent_proposed_tier
+        4. tool_tiers value is "agent" → use agent_proposed_tier (with shell guards)
         5. hardcoded default → use _DEFAULT_TIERS
         """
-        original = self._base_tier(tool_name, agent_proposed_tier)
+        self._last_guard_match = None  # reset before any early-return
+
+        original = self._base_tier(tool_name, agent_proposed_tier, command)
+        guard_list, guard_pattern = (self._last_guard_match or (None, None))
+        override_reason = "shell_pattern_guard" if guard_list is not None else None
 
         # Priority 1: global safe mode
         if self.global_safe_mode:
@@ -150,6 +160,9 @@ class SafetyPolicy:
                 safe_mode_active=True,
                 original_tier=original,
                 agent_reasoning=agent_reasoning,
+                override_reason=override_reason,
+                guard_matched_list=guard_list,
+                guard_matched_pattern=guard_pattern,
             )
 
         # Priority 2: per-resource safe mode
@@ -159,12 +172,20 @@ class SafetyPolicy:
                 safe_mode_active=True,
                 original_tier=original,
                 agent_reasoning=agent_reasoning,
+                override_reason=override_reason,
+                guard_matched_list=guard_list,
+                guard_matched_pattern=guard_pattern,
             )
 
-        # No override — use original tier
+        # No safe-mode override — use original tier
+        # When a guard fired, original_tier = agent_proposed_tier (pre-guard value)
+        guard_fired = guard_list is not None
         return ResolvedTier(
             tier=original,
             safe_mode_active=False,
-            original_tier=None,
+            original_tier=agent_proposed_tier if guard_fired else None,
             agent_reasoning=agent_reasoning,
+            override_reason=override_reason,
+            guard_matched_list=guard_list,
+            guard_matched_pattern=guard_pattern,
         )

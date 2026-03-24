@@ -128,3 +128,157 @@ def test_hardcoded_defaults_not_replaced_by_config() -> None:
     policy = make_policy(extra_tier2=[r"my-deploy\.sh"])
     result = policy._check_shell_command("git push origin main", agent_proposed_tier=1)
     assert result == 2
+
+
+# --- resolve_tier integration: ResolvedTier fields ---
+
+def test_resolve_tier_rm_rf_forces_tier3() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="rm -rf /tmp/test",
+    )
+    assert resolved.tier == 3
+
+
+def test_resolve_tier_git_push_forces_tier2() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="git push origin main",
+    )
+    assert resolved.tier == 2
+
+
+def test_resolve_tier_read_only_passthrough() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="df -h",
+    )
+    assert resolved.tier == 1
+
+
+def test_resolve_tier_git_push_tier2_stays_tier2() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=2,
+        command="git push origin main",
+    )
+    assert resolved.tier == 2
+
+
+def test_resolve_tier_config_pattern_force_tier3() -> None:
+    policy = make_policy(extra_tier3=[r"my-nuke\.sh"])
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="my-nuke.sh",
+    )
+    assert resolved.tier == 3
+
+
+def test_resolve_tier_config_pattern_force_tier2() -> None:
+    policy = make_policy(extra_tier2=[r"my-deploy\.sh"])
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="my-deploy.sh",
+    )
+    assert resolved.tier == 2
+
+
+def test_resolve_tier_override_reason_logged_on_guard_fire() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="git push origin main",
+    )
+    assert resolved.override_reason == "shell_pattern_guard"
+    assert resolved.guard_matched_list == "force_tier2"
+    assert resolved.guard_matched_pattern is not None
+
+
+def test_resolve_tier_no_override_reason_when_no_guard() -> None:
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="df -h",
+    )
+    assert resolved.override_reason is None
+    assert resolved.guard_matched_list is None
+    assert resolved.guard_matched_pattern is None
+
+
+def test_resolve_tier_original_tier_set_when_guard_fires() -> None:
+    """original_tier must be agent_proposed_tier when a pattern guard overrides it."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="rm -rf /tmp/test",
+    )
+    assert resolved.original_tier == 1
+    assert resolved.safe_mode_active is False
+
+
+def test_resolve_tier_safe_mode_sets_guard_fields() -> None:
+    """Under safe mode, guard still runs and guard fields are populated on ResolvedTier."""
+    policy = make_policy(global_safe_mode=True)
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="git push origin main",
+    )
+    assert resolved.tier == 3
+    assert resolved.safe_mode_active is True
+    assert resolved.guard_matched_list == "force_tier2"
+    assert resolved.guard_matched_pattern is not None
+
+
+def test_resolve_tier_safe_mode_no_guard_match_guard_fields_none() -> None:
+    """Under safe mode with no guard match, guard fields are still None."""
+    policy = make_policy(global_safe_mode=True)
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="df -h",
+    )
+    assert resolved.tier == 3
+    assert resolved.safe_mode_active is True
+    assert resolved.guard_matched_list is None
+    assert resolved.guard_matched_pattern is None
+
+
+def test_resolve_tier_stale_guard_match_not_leaked() -> None:
+    """_last_guard_match must be reset at start of each resolve_tier call."""
+    policy = make_policy()
+    # First call fires a guard
+    policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="git push origin main",
+    )
+    # Second call must not inherit the previous guard match
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="df -h",
+    )
+    assert resolved.guard_matched_list is None
+    assert resolved.guard_matched_pattern is None
+    assert resolved.override_reason is None
+
+
+def test_resolve_tier_non_shell_tool_unaffected() -> None:
+    """Guard logic must not run for non-run_shell tools."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(tool_name="read_file")
+    assert resolved.tier == 1
+    assert resolved.guard_matched_list is None

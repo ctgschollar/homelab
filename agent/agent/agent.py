@@ -212,7 +212,7 @@ def build_approval_app(
 
         timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
         signature = request.headers.get("X-Slack-Signature", "")
-        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+        if slack.signature_verification_enabled and not slack.verify_signature(timestamp, raw_body, signature):
             return Response(content="Invalid signature", status_code=403)
 
         body = json.loads(raw_body)
@@ -244,7 +244,7 @@ def build_approval_app(
         signature = request.headers.get("X-Slack-Signature", "")
         console.print(f"  [dim]Slack interaction received — timestamp={timestamp!r} sig={signature[:20]!r}…[/dim]")
 
-        if slack.configured and not slack.verify_signature(timestamp, raw_body, signature):
+        if slack.signature_verification_enabled and not slack.verify_signature(timestamp, raw_body, signature):
             console.print("  [bold red]Slack signature verification failed[/bold red]")
             return Response(content="Invalid signature", status_code=403)
 

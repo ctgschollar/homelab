@@ -67,3 +67,72 @@ class TestPlanIdEntropy:
         source = inspect.getsource(HomelabAgent._handle_approval_flow)
         assert "token_hex(4)" in source, "Expected token_hex(4) in _handle_approval_flow; was token_hex(2) reverted?"
         assert "token_hex(2)" not in source, "Found token_hex(2) in _handle_approval_flow; should be token_hex(4)"
+
+
+import json
+import httpx
+import unittest.mock
+
+from agent.agent import PendingApprovals, build_approval_app
+from agent.slack import SlackClient
+
+
+class TestEndpointSignatureVerification:
+    def _make_app(self, signing_secret: str | None):
+        pending = PendingApprovals()
+        slack = SlackClient(bot_token=None, signing_secret=signing_secret, channel="#ops")
+        return build_approval_app(pending, slack, event_queue=None)
+
+    async def test_events_endpoint_returns_403_when_secret_configured_and_signature_invalid(self) -> None:
+        app = self._make_app(signing_secret="mysecret")
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/slack/events",
+                content=json.dumps({"type": "url_verification", "challenge": "abc123"}).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Slack-Request-Timestamp": "1234567890",
+                    "X-Slack-Signature": "v0=badhash",
+                },
+            )
+        assert response.status_code == 403
+
+    async def test_events_endpoint_allows_request_when_no_secret_configured(self) -> None:
+        app = self._make_app(signing_secret=None)
+        body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/slack/events",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
+        assert response.status_code == 200
+        assert response.json() == {"challenge": "abc123"}
+
+    async def test_interactions_endpoint_returns_403_when_secret_configured_and_signature_invalid(self) -> None:
+        app = self._make_app(signing_secret="mysecret")
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/slack/interactions",
+                content=b"payload=%7B%7D",
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Slack-Request-Timestamp": "1234567890",
+                    "X-Slack-Signature": "v0=badhash",
+                },
+            )
+        assert response.status_code == 403
+
+    async def test_interactions_endpoint_allows_request_when_no_secret_configured(self) -> None:
+        app = self._make_app(signing_secret=None)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/slack/interactions",
+                content=b"payload=%7B%22type%22%3A%22block_actions%22%2C%22actions%22%3A%5B%5D%7D",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        assert response.status_code == 200

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,40 @@ _DEFAULT_TIERS: dict[str, int] = {
     "write_file": 3,
 }
 
+_SHELL_FORCE_TIER3: list[re.Pattern] = [
+    re.compile(r'\brm\s+-rf?\b'),
+    re.compile(r'\bmkfs\b'),
+    re.compile(r'\bdd\b.*\bof='),
+    re.compile(r'\bparted\b'),
+    re.compile(r'\bfdisk\b'),
+    re.compile(r'\bwipefs\b'),
+    re.compile(r'\bshred\b'),
+    re.compile(r'\btruncate\b'),
+    re.compile(r'>\s*/dev/'),
+]
+
+_SHELL_FORCE_TIER2: list[re.Pattern] = [
+    re.compile(r'\bsystemctl\b.*(restart|stop|start|disable|enable)'),
+    re.compile(r'\bdocker\b.*(rm|rmi|prune|kill)'),
+    re.compile(r'\breboot\b'),
+    re.compile(r'\bpoweroff\b'),
+    re.compile(r'\bshutdown\b'),
+    re.compile(r'\biptables\b'),
+    re.compile(r'\bufw\b.*(delete|disable|reset)'),
+    re.compile(r'\bpasswd\b'),
+    re.compile(r'\busermod\b'),
+    re.compile(r'\bchmod\b\s+[0-7]*7'),
+    re.compile(r'\bchown\b'),
+    re.compile(r'\bgit\s+push\b'),
+    re.compile(r'\bgit\s+reset\b'),
+    re.compile(r'\bgit\s+config\b'),
+    re.compile(r'\bcrontab\b'),
+    re.compile(r'\bsed\b.*-i'),
+    re.compile(r'\bawk\b.*>'),
+    re.compile(r'\bwget\b.*-O\b'),
+    re.compile(r'\bcurl\b.*(-o\b|-O\b|--output)'),
+]
+
 
 @dataclass
 class ResolvedTier:
@@ -43,6 +78,15 @@ class SafetyPolicy:
         self.tool_tiers: dict[str, int | str] = dict(config.safety.tool_tiers)
         self.log_agent_tier_reasoning: bool = config.safety.log_agent_tier_reasoning
 
+        guards = config.safety.shell_command_guards
+        self._shell_force_tier3_patterns: list[re.Pattern] = list(_SHELL_FORCE_TIER3) + [
+            re.compile(p) for p in guards.force_tier3
+        ]
+        self._shell_force_tier2_patterns: list[re.Pattern] = list(_SHELL_FORCE_TIER2) + [
+            re.compile(p) for p in guards.force_tier2
+        ]
+        self._last_guard_match: tuple[str, str] | None = None
+
     def _resource_in_safe_mode(self, target_resource: str | None) -> bool:
         if target_resource is None:
             return False
@@ -50,6 +94,23 @@ class SafetyPolicy:
             if target_resource.startswith(prefix):
                 return True
         return False
+
+    def _check_shell_command(self, command: str, agent_proposed_tier: int) -> int:
+        """Apply pattern guards to a shell command and return the effective tier.
+
+        Sets self._last_guard_match to (list_name, pattern_string) when a guard
+        fires, or None when no guard matches.
+        """
+        for pattern in self._shell_force_tier3_patterns:
+            if pattern.search(command):
+                self._last_guard_match = ("force_tier3", pattern.pattern)
+                return 3
+        for pattern in self._shell_force_tier2_patterns:
+            if pattern.search(command):
+                self._last_guard_match = ("force_tier2", pattern.pattern)
+                return max(2, agent_proposed_tier)
+        self._last_guard_match = None
+        return agent_proposed_tier
 
     def _base_tier(self, tool_name: str, agent_proposed_tier: int | None) -> int:
         """Return the raw tier before safe-mode overrides."""

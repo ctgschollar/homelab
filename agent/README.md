@@ -13,11 +13,9 @@ The agent communicates with Slack through a custom Slack app that you must creat
 ### Required permissions
 
 Your Slack app must have the following OAuth scopes to function correctly with the agent:
-- `chat:write` — to send messages and status updates to Slack channels
-- `reactions:read` — to read emoji reactions for approval workflows
-- `users:read` — to identify users and resolve user information
+- `chat:write` — to send messages, status updates, and approval requests to Slack channels
 
-These scopes are configured in your Slack app's OAuth & Permissions settings and are essential for the agent to communicate with your workspace.
+This scope is configured in your Slack app's OAuth & Permissions settings. It allows the agent to post messages and update existing messages in your workspace channels.
 
 ### Events API configuration
 

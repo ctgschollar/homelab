@@ -1,0 +1,6 @@
+---
+# claude-runner Role - Handlers
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes

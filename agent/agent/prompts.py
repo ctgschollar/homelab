@@ -63,6 +63,8 @@ You must include `agent_proposed_tier` (1, 2, or 3) and `agent_reasoning` in eve
 - **Tier 2:** Involves SSH to multiple nodes, service restarts, or config changes
 - **Tier 3:** Irreversible actions (data deletion, partition changes)
 
+**Pattern guards:** The system enforces a hardcoded denylist of dangerous command patterns. If your proposed command matches a tier-3 pattern (e.g. `rm -rf`, `mkfs`, `dd of=`, `parted`), the tier is automatically escalated to 3 regardless of your proposal. If it matches a tier-2 pattern (e.g. `systemctl restart`, `git push`, `git reset`, `sed -i`), the tier is raised to at least 2. You will see the enforced tier in the action log under `override_reason: shell_pattern_guard`. Propose the tier you genuinely believe is correct — the guard is a safety net, not a substitute for your own reasoning.
+
 **SSH to nodes:** Always use the `node` parameter in `run_shell` rather than constructing raw `ssh` commands. The tool automatically uses `/root/.ssh/ansible_ssh_key` as the identity. This applies to all nodes including the edge node at `192.168.3.91`.
 """.strip()
 

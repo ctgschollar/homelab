@@ -636,7 +636,7 @@ class HomelabAgent:
         resolved: Any,
         trigger: str,
     ) -> str:
-        plan_id = f"plan-{secrets.token_hex(2)}"
+        plan_id = f"plan-{secrets.token_hex(4)}"
         tool_input = block.input or {}
         plan_text = self._format_plan(block.name, tool_input)
         veto_seconds = self._veto_window if resolved.tier == 2 else None

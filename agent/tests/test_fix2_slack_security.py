@@ -48,3 +48,22 @@ class TestResolveListenerHost:
     def test_listener_with_secret_localhost_host_unchanged(self) -> None:
         result = _resolve_listener_host(host="127.0.0.1", signing_secret_configured=True)
         assert result == "127.0.0.1"
+
+
+import re
+import inspect
+
+from agent import HomelabAgent
+
+
+class TestPlanIdEntropy:
+    def test_plan_id_format_is_8_hex_chars(self) -> None:
+        import secrets
+        plan_id = f"plan-{secrets.token_hex(4)}"
+        assert re.match(r'^plan-[0-9a-f]{8}$', plan_id), f"Unexpected format: {plan_id}"
+
+    def test_token_hex_4_used_in_handle_approval_flow(self) -> None:
+        """Verify the literal token_hex(4) call exists in _handle_approval_flow source."""
+        source = inspect.getsource(HomelabAgent._handle_approval_flow)
+        assert "token_hex(4)" in source, "Expected token_hex(4) in _handle_approval_flow; was token_hex(2) reverted?"
+        assert "token_hex(2)" not in source, "Found token_hex(2) in _handle_approval_flow; should be token_hex(4)"

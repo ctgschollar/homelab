@@ -7,7 +7,7 @@ Wants=network-online.target
 User={{ claude_user }}
 Environment=PATH={{ claude_user_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile={{ claude_runner_base_dir }}/env/%i
-ExecStart={{ claude_runner_base_dir }}/run.sh ${REPO_PATH}
+ExecStart={{ claude_runner_base_dir }}/run.sh ${REPO_PATH} %i
 Restart=always
 RestartSec=5
 StandardOutput=journal

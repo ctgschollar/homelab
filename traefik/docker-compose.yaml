@@ -10,6 +10,7 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.pg.address=:5432"
+      - "--entrypoints.gitea-ssh.address=:2222"
       - "--api.dashboard=true"
 
       # ACME (Let's Encrypt via Cloudflare DNS-01)
@@ -41,6 +42,7 @@ services:
       - "80:80"
       - "443:443"
       - "5432:5432" # Postgres access
+      - "2222:2222" # Gitea SSH access
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/mnt/cephfs-configs/traefik/letsencrypt:/letsencrypt"

@@ -15,11 +15,12 @@
     groups: docker
     append: yes
 
-- name: Install nodejs and npm
+- name: Install system dependencies
   apt:
     name:
       - nodejs
       - npm
+      - expect
     state: present
     update_cache: yes
 
@@ -39,6 +40,22 @@
 - name: Create env directory for per-instance repo configs
   file:
     path: "{{ claude_runner_base_dir }}/env"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create logs directory
+  file:
+    path: "{{ claude_runner_base_dir }}/logs"
+    state: directory
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0755'
+
+- name: Create tasks directory
+  file:
+    path: "{{ claude_runner_base_dir }}/tasks"
     state: directory
     owner: root
     group: root

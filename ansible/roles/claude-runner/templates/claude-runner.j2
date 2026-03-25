@@ -7,16 +7,20 @@ set -euo pipefail
 
 REPOS_CONF="{{ claude_runner_base_dir }}/repos.conf"
 ENV_DIR="{{ claude_runner_base_dir }}/env"
+TASK_DIR="{{ claude_runner_base_dir }}/tasks"
 
 usage() {
     cat <<EOF
 Usage: claude-runner <command> [args]
 
 Commands:
-  add <name> <path>   Register a repo and start its runner service
-  remove <name>       Stop and remove a runner
-  list                Show all runners and their service status
-  status <name>       Tail the journal for a runner
+  add <name> <path>              Register a repo and start its runner service
+  remove <name>                  Stop and remove a runner
+  add-instruction <name> [text]  Set the task instruction for a runner
+                                 (reads from stdin if no text given)
+  add-instruction <name> -f <file>  Set instruction from a file
+  list                           Show all runners and their service status
+  status <name>                  Tail the journal for a runner
 EOF
     exit 1
 }
@@ -46,6 +50,7 @@ cmd_add() {
     systemctl daemon-reload
     systemctl enable --now "claude-runner@${name}.service"
     echo "Started claude-runner@${name} for ${path}"
+    echo "Tip: set instructions with: claude-runner add-instruction ${name} 'your task'"
 }
 
 cmd_remove() {
@@ -59,10 +64,40 @@ cmd_remove() {
     # Remove from repos.conf
     sed -i "/^${name}=/d" "$REPOS_CONF"
 
-    # Remove env file
+    # Remove env file and task file
     rm -f "${ENV_DIR}/${name}"
+    rm -f "${TASK_DIR}/${name}.md"
 
     echo "Removed claude-runner@${name}"
+}
+
+cmd_add_instruction() {
+    local name="${1:?add-instruction requires a name}"
+    shift
+
+    if ! grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
+        echo "Error: '${name}' is not registered. Use: claude-runner add ${name} <path>" >&2
+        exit 1
+    fi
+
+    local task_file="${TASK_DIR}/${name}.md"
+
+    if [[ "${1:-}" == "-f" ]]; then
+        local src="${2:?-f requires a file path}"
+        if [[ ! -f "$src" ]]; then
+            echo "Error: file not found: $src" >&2
+            exit 1
+        fi
+        cp "$src" "$task_file"
+    elif [[ $# -gt 0 ]]; then
+        echo "$@" > "$task_file"
+    else
+        cat > "$task_file"
+    fi
+
+    chmod 644 "$task_file"
+    echo "Instruction set for claude-runner@${name}"
+    echo "Restart the runner to apply: systemctl restart claude-runner@${name}.service"
 }
 
 cmd_list() {
@@ -71,14 +106,20 @@ cmd_list() {
         return
     fi
 
-    printf "%-20s %-40s %s\n" "NAME" "PATH" "STATUS"
-    printf "%-20s %-40s %s\n" "----" "----" "------"
+    printf "%-20s %-40s %-10s %s\n" "NAME" "PATH" "STATUS" "INSTRUCTION"
+    printf "%-20s %-40s %-10s %s\n" "----" "----" "------" "-----------"
 
     while IFS='=' read -r name path; do
         [[ -z "$name" || "$name" == \#* ]] && continue
         local status
         status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
-        printf "%-20s %-40s %s\n" "$name" "$path" "$status"
+        local instruction
+        if [[ -f "${TASK_DIR}/${name}.md" ]]; then
+            instruction="set"
+        else
+            instruction="none"
+        fi
+        printf "%-20s %-40s %-10s %s\n" "$name" "$path" "$status" "$instruction"
     done < "$REPOS_CONF"
 }
 
@@ -88,9 +129,10 @@ cmd_status() {
 }
 
 case "${1:-}" in
-    add)    shift; cmd_add "$@" ;;
-    remove) shift; cmd_remove "$@" ;;
-    list)   cmd_list ;;
-    status) shift; cmd_status "$@" ;;
-    *)      usage ;;
+    add)             shift; cmd_add "$@" ;;
+    remove)          shift; cmd_remove "$@" ;;
+    add-instruction) shift; cmd_add_instruction "$@" ;;
+    list)            cmd_list ;;
+    status)          shift; cmd_status "$@" ;;
+    *)               usage ;;
 esac

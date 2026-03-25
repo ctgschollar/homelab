@@ -10,6 +10,7 @@ ENV_DIR="{{ claude_runner_base_dir }}/env"
 TASK_DIR="{{ claude_runner_base_dir }}/tasks"
 ACCOUNTS_CONF="{{ claude_runner_base_dir }}/accounts.conf"
 
+{% raw %}
 usage() {
     cat <<EOF
 Usage: claude-runner <command> [args]
@@ -188,7 +189,7 @@ cmd_add_instruction() {
 - Use your own discretion on all decisions.
 - If you reach a point where you cannot continue for any reason, write a plain-text
   description of why to:
-  {{ claude_runner_base_dir }}/tasks/${name}.stuck
+  ${TASK_DIR}/${name}.stuck
   Then stop immediately — do not loop or retry.
 HEADER
 
@@ -384,3 +385,4 @@ case "${1:-}" in
     list-accounts)   cmd_list_accounts ;;
     *)               usage ;;
 esac
+{% endraw %}

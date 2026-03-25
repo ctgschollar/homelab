@@ -199,18 +199,10 @@ async def _next_incident_number(self) -> str:
 
 ### `agent/agent/config_schema.py`
 
-Add to imports at the top of `config_schema.py`:
-```python
-from pydantic import AliasChoices
-```
-
-New model:
+New model (DSN is injected via `_env_map` in `YamlConfigSettingsSource`, consistent with how other secrets are handled):
 ```python
 class RagConfig(BaseModel):
-    dsn: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("dsn", "AGENT_POSTGRES_DSN"),
-    )
+    dsn: Optional[str] = Field(default=None)
     database: str = "homelab_agent"
     log_rag_debug: bool = False
 ```

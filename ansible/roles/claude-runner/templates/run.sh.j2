@@ -9,6 +9,6 @@ LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 cd "$REPO_PATH"
 
 while true; do
-    script -q -a -c "claude --continue --dangerously-skip-permissions" "$LOG_FILE"
+    unbuffer claude --continue --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
     sleep 5
 done

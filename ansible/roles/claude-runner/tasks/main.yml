@@ -15,11 +15,12 @@
     groups: docker
     append: yes
 
-- name: Install nodejs and npm
+- name: Install system dependencies
   apt:
     name:
       - nodejs
       - npm
+      - expect
     state: present
     update_cache: yes
 

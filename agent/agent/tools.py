@@ -373,6 +373,10 @@ class ToolExecutor:
         # Secrets to scrub from all subprocess output before logging/returning
         self._secrets: list[str] = [s for s in [self._git_token] if s]
 
+        # Gate: serialize all run_shell executions (even tier-1 concurrent ones)
+        # to prevent concurrent SSH sessions and ordering issues.
+        self._shell_gate = asyncio.Semaphore(1)
+
     def _scrub(self, text: str) -> str:
         for secret in self._secrets:
             text = text.replace(secret, "***")
@@ -871,7 +875,8 @@ class ToolExecutor:
         else:
             args = ["bash", "-c", command]
 
-        return await self._run_subprocess(args, timeout=300, stream=True)
+        async with self._shell_gate:
+            return await self._run_subprocess(args, timeout=300, stream=True)
 
     async def _tool_get_prometheus_alerts(self, inp: dict) -> str:
         async with httpx.AsyncClient(timeout=10.0) as client:

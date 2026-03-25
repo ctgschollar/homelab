@@ -76,6 +76,7 @@ The runner idles and logs the stuck reason every 60 seconds. Claude is not launc
 Before launching Claude, read the last `[PROGRESS]` commit from the repo and prepend a resume header to the task prompt:
 
 ```bash
+# REPO_PATH is provided as $1 to run.sh (same as existing script)
 LAST_PROGRESS=$(git -C "$REPO_PATH" log --oneline | grep '\[PROGRESS' | head -1)
 if [[ -n "$LAST_PROGRESS" ]]; then
     RESUME_PREFIX="RESUME CONTEXT: Last completed progress: ${LAST_PROGRESS}\nContinue from the next incomplete step in the plan.\n\n"
@@ -175,6 +176,7 @@ Spec and plan file contents are embedded verbatim so Claude does not need to loc
    > _
    (If 0 or 1 accounts registered, skip this step)
 7. Write task file with boilerplate + embedded spec/plan contents
+   (silently overwrites any existing task file for this name)
 8. Write CLAUDE_CONFIG_DIR to env/<name> if an account was selected
 9. Print: "Instruction set. Restart to apply: systemctl restart claude-runner@<name>.service"
 ```

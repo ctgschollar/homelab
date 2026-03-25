@@ -1,0 +1,29 @@
+---
+- name: Install basic tools on target servers
+  hosts: all
+  become: true
+
+  vars:
+    target_user: claude
+    target_user_home: /home/claude
+
+  tasks:
+    - name: Install apt packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - python3-pip
+          - pipx
+        state: present
+        update_cache: yes
+
+    - name: Install hatch via pipx for target user
+      become_user: "{{ target_user }}"
+      command: pipx install hatch
+      environment:
+        HOME: "{{ target_user_home }}"
+      args:
+        creates: "{{ target_user_home }}/.local/bin/hatch"

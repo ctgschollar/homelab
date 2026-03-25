@@ -61,6 +61,15 @@
     group: root
     mode: '0755'
 
+- name: Create accounts.conf (skip if already populated)
+  copy:
+    content: ""
+    dest: "{{ claude_runner_base_dir }}/accounts.conf"
+    owner: root
+    group: root
+    mode: '0644'
+    force: no
+
 - name: Install repos.conf (skip if already populated)
   copy:
     src: repos.conf

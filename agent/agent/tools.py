@@ -10,6 +10,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from .config_schema import AgentConfig
+    from .rag import IncidentRAG
 
 _console = Console()
 
@@ -346,6 +347,29 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["stack_name"],
         },
     },
+    {
+        "name": "search_incidents",
+        "description": (
+            "Search past incident reports for similar problems. "
+            "Use this at the start of an incident to find relevant past resolutions "
+            "and avoid repeating known pitfalls."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Describe the current problem in a sentence or two.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of results to return. Default 5.",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -354,9 +378,10 @@ TOOL_DEFINITIONS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 class ToolExecutor:
-    def __init__(self, config: "AgentConfig", slack_client: Any) -> None:
+    def __init__(self, config: "AgentConfig", slack_client: Any, rag: "IncidentRAG | None" = None) -> None:
         self._config = config
         self._slack = slack_client
+        self._rag = rag
         self._docker_socket = config.docker.socket
         self._ssh_key = config.swarm.ssh_key
         self._ssh_user = config.swarm.ssh_user
@@ -583,16 +608,10 @@ class ToolExecutor:
             stack_name,
         ])
 
-    def _next_incident_number(self) -> int:
-        self._reports_path.mkdir(parents=True, exist_ok=True)
-        highest = 0
-        for f in self._reports_path.glob("INC-*.md"):
-            try:
-                num = int(f.name.split("-")[1])
-                highest = max(highest, num)
-            except (IndexError, ValueError):
-                pass
-        return highest + 1
+    async def _next_incident_number(self) -> str:
+        """Return the next incident ID as 'INC-XXXX' based on DB count."""
+        count = await self._rag.count_incidents()
+        return f"INC-{count + 1:04d}"
 
     def _slice_action_log(self, start_time: str) -> list[dict]:
         try:
@@ -625,6 +644,9 @@ class ToolExecutor:
         return entries
 
     async def _tool_write_incident_report(self, tool_inp: dict) -> str:
+        if self._rag is None:
+            return "WARNING: RAG is not configured (AGENT_POSTGRES_DSN not set). Incident not stored."
+
         inp = tool_inp
         title = inp["title"]
         tags = inp["tags"]
@@ -646,23 +668,11 @@ class ToolExecutor:
         except (ValueError, AttributeError):
             pass
 
-        num = self._next_incident_number()
-        slug = title.lower().replace(" ", "-").replace("/", "-")
-        slug = "".join(c for c in slug if c.isalnum() or c == "-")
-        filename = f"INC-{num:04d}-{slug}.md"
-        filepath = self._reports_path / filename
+        inc_id = await self._next_incident_number()
 
         log_entries = self._slice_action_log(start_time) if start_time_valid else []
-        log_json = json.dumps(log_entries, indent=2) if log_entries else "[]"
 
-        # Auto-extract shell commands from the log slice
-        shell_commands = [
-            e for e in log_entries
-            if e.get("event") == "action_taken" and e.get("tool") == "run_shell"
-        ]
-
-        # Rejected plans: explicit input takes precedence (agent knows from conversation),
-        # supplemented by any plan_cancelled events found in the log slice.
+        # Rejected plans
         explicit_rejected: list[dict] = inp.get("rejected_plans") or []
         proposed_by_id: dict[str, dict] = {
             e["plan_id"]: e for e in log_entries
@@ -673,36 +683,32 @@ class ToolExecutor:
             for e in log_entries
             if e.get("event") == "plan_cancelled"
         ]
-        # Deduplicate: use explicit list if provided, fall back to log extraction
         rejected_plans = explicit_rejected if explicit_rejected else log_rejected
 
-        now = datetime.now(timezone.utc).isoformat()
         tags_str = ", ".join(tags)
         tools_str = ", ".join(f"`{t}`" for t in tools_used)
 
-        # Narrative sections — go into both the file and Slack
+        # Build Slack narrative
         narrative: list[str] = [
-            f"# INC-{num:04d}: {title}",
-            f"",
-            f"**Inciting Incident**",
-            f"{inciting}",
-            f"",
-            f"**Resolution**",
-            f"{resolution}",
+            f"# {inc_id}: {title}",
+            "",
+            "**Inciting Incident**",
+            inciting,
+            "",
+            "**Resolution**",
+            resolution,
         ]
 
         if rejected_plans:
-            narrative += ["", f"**Rejected Plans**"]
+            narrative += ["", "**Rejected Plans**"]
             for i, e in enumerate(rejected_plans, 1):
                 if "input" in e:
-                    # Log-extracted format
                     plan_inp = e.get("input", {})
                     cmd = plan_inp.get("command", "")
                     node = plan_inp.get("node", "")
                     reason = e.get("reason", "")
                     agent_reasoning = plan_inp.get("agent_reasoning", "")
                 else:
-                    # Explicit format from agent input
                     cmd = e.get("command", "")
                     node = ""
                     reason = e.get("reason", "")
@@ -712,74 +718,57 @@ class ToolExecutor:
                     narrative.append(f"   _Agent reasoning:_ {agent_reasoning}")
                 narrative.append(f"   _Rejected:_ {reason}")
 
-        narrative += ["", f"**Tools Used**", f"{tools_str}"]
+        narrative += ["", "**Tools Used**", tools_str]
         if other_tools:
-            narrative += ["", f"**Other Tools**", f"{other_tools}"]
+            narrative += ["", "**Other Tools**", other_tools]
         if pitfalls:
-            narrative += ["", f"**Pitfalls**", f"{pitfalls}"]
+            narrative += ["", "**Pitfalls**", pitfalls]
 
         slack_body = "\n".join(narrative)
 
-        # Shell commands section — file only, not Slack
-        shell_section: list[str] = []
-        if shell_commands:
-            shell_section += ["", f"**Shell Commands Run**"]
-            for e in shell_commands:
-                cmd_inp = e.get("input", {})
-                cmd = cmd_inp.get("command", "")
-                node = cmd_inp.get("node", "local")
-                tier = e.get("tier", "?")
-                outcome_preview = (e.get("outcome", "") or "")[:120].replace("\n", " ")
-                shell_section.append(f"- `{cmd}` on `{node}` (tier {tier}) → {outcome_preview}")
-
-        sections = [
-            f"---",
-            f"tags: [{tags_str}]",
-            f"incident: INC-{num:04d}",
-            f"date: {now}",
-            f"---",
-            f"",
-        ] + narrative + shell_section
-
-        sections += [
-            f"",
-            f"---",
-            f"## Action Log",
-            f"",
-            f"```json",
-            log_json,
-            f"```",
-        ]
-
-        filepath.write_text("\n".join(sections))
-
-        # Commit and push via PAT
-        repo = self._repo_path
-        token = self._git_token
-        author_name = self._git_author_name
-        author_email = self._git_author_email
-        git_opts = (
-            f'-c user.name="{author_name}" '
-            f'-c user.email="{author_email}"'
-        )
-        commit_msg = f"incident: INC-{num:04d} {title}"
-        push_url = await self._authed_push_url(repo)
-        abs_report = str(filepath)
-        git_cmd = (
-            f'cd "{repo}" && '
-            f'git {git_opts} add "{abs_report}" && '
-            f'git {git_opts} commit -m "{commit_msg}" && '
-            f'git push "{push_url}" && '
-            f'git update-ref refs/remotes/origin/main HEAD'
-        )
-        git_result = await self._run_subprocess(["bash", "-c", git_cmd], timeout=60, stream=True)
+        # Store in DB
+        await self._rag.store_incident({
+            "id": inc_id,
+            "title": title,
+            "date": now_utc,
+            "tags": tags,
+            "inciting_incident": inciting,
+            "resolution": resolution,
+            "tools_used": tools_used,
+        })
 
         await self._slack.notify(slack_body)
 
         return (
-            f"INC-{num:04d} written and committed: `reports/{filename}` "
-            f"({len(log_entries)} action log entries, tags: {tags_str}).\n{git_result}"
+            f"{inc_id} stored in database "
+            f"({len(log_entries)} action log entries, tags: {tags_str})."
         )
+
+    async def _tool_search_incidents(self, tool_inp: dict) -> str:
+        if self._rag is None:
+            return "RAG is not configured (AGENT_POSTGRES_DSN not set). Cannot search incidents."
+
+        query = tool_inp["query"]
+        top_k = int(tool_inp.get("top_k", 5))
+
+        results = await self._rag.search_incidents(query, top_k=top_k)
+
+        if not results:
+            return "No past incidents found matching that query."
+
+        lines = [f"Found {len(results)} past incident(s):\n"]
+        for r in results:
+            date_str = r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])
+            tags_str = ", ".join(r["tags"])
+            lines += [
+                f"---",
+                f"**{r['id']}**: {r['title']}",
+                f"Date: {date_str} | Tags: {tags_str} | Similarity: {r['similarity']:.2f}",
+                f"**Inciting Incident:** {r['inciting_incident']}",
+                f"**Resolution:** {r['resolution']}",
+                "",
+            ]
+        return "\n".join(lines)
 
     async def _tool_git_pull(self, inp: dict) -> str:
         repo = self._repo_path

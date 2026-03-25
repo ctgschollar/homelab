@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 User={{ claude_user }}
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile={{ claude_runner_base_dir }}/env/%i
 ExecStart={{ claude_runner_base_dir }}/run.sh ${REPO_PATH}
 Restart=always

@@ -75,7 +75,6 @@ cmd_remove() {
 
 cmd_add_instruction() {
     local name="${1:?add-instruction requires a name}"
-    shift
 
     if ! grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
         echo "Error: '${name}' is not registered. Use: claude-runner add ${name} <path>" >&2
@@ -83,21 +82,151 @@ cmd_add_instruction() {
     fi
 
     local task_file="${TASK_DIR}/${name}.md"
+    local env_file="${ENV_DIR}/${name}"
+    local repo_path
+    repo_path=$(grep "^REPO_PATH=" "$env_file" 2>/dev/null | cut -d= -f2-)
 
-    if [[ "${1:-}" == "-f" ]]; then
-        local src="${2:?-f requires a file path}"
-        if [[ ! -f "$src" ]]; then
-            echo "Error: file not found: $src" >&2
-            exit 1
+    # --- Spec selection ---
+    local spec_file=""
+    local spec_rel=""
+    local spec_dir="${repo_path}/docs/superpowers/specs"
+    if [[ -d "$spec_dir" ]]; then
+        mapfile -t spec_files < <(find "$spec_dir" -maxdepth 1 -name "*.md" | sort)
+        if [[ ${#spec_files[@]} -gt 0 ]]; then
+            echo ""
+            echo "Select spec file:"
+            local i=1
+            for f in "${spec_files[@]}"; do
+                printf "  %d) %s\n" "$i" "$(basename "$f")"
+                ((i++))
+            done
+            read -rp "> " spec_idx
+            spec_file="${spec_files[$((spec_idx-1))]}"
+            spec_rel="docs/superpowers/specs/$(basename "$spec_file")"
+        else
+            echo "Warning: no spec files found in ${spec_dir} — skipping spec"
         fi
-        cp "$src" "$task_file"
-    elif [[ $# -gt 0 ]]; then
-        echo "$@" > "$task_file"
     else
-        cat > "$task_file"
+        echo "Warning: ${spec_dir} not found — skipping spec selection"
+    fi
+
+    # --- Plan selection ---
+    local selected_plans=()
+    local plan_dir="${repo_path}/docs/superpowers/plans"
+    if [[ -d "$plan_dir" ]]; then
+        mapfile -t plan_files < <(find "$plan_dir" -maxdepth 1 -name "*.md" | sort)
+        if [[ ${#plan_files[@]} -gt 0 ]]; then
+            echo ""
+            echo "Select plans (comma-separated numbers, in execution order):"
+            local i=1
+            for f in "${plan_files[@]}"; do
+                printf "  %d) %s\n" "$i" "$(basename "$f")"
+                ((i++))
+            done
+            read -rp "> " plan_selection
+            IFS=',' read -ra plan_indices <<< "$plan_selection"
+            for idx in "${plan_indices[@]}"; do
+                idx="${idx// /}"
+                selected_plans+=("${plan_files[$((idx-1))]}")
+            done
+        else
+            echo "Warning: no plan files found in ${plan_dir} — skipping plans"
+        fi
+    else
+        echo "Warning: ${plan_dir} not found — skipping plan selection"
+    fi
+
+    # --- Python? ---
+    echo ""
+    local uses_python="n"
+    read -rp "Does this project use Python? (y/n): " uses_python
+
+    # --- Account selection ---
+    local claude_config_dir=""
+    if [[ -f "$ACCOUNTS_CONF" ]]; then
+        mapfile -t account_lines < <(grep -v '^[[:space:]]*#' "$ACCOUNTS_CONF" | grep -v '^[[:space:]]*$')
+        if [[ ${#account_lines[@]} -gt 1 ]]; then
+            echo ""
+            echo "Select Claude account:"
+            local i=1
+            for line in "${account_lines[@]}"; do
+                printf "  %d) %s\n" "$i" "${line%%=*}"
+                ((i++))
+            done
+            read -rp "> " acct_idx
+            local selected_line="${account_lines[$((acct_idx-1))]}"
+            claude_config_dir="${selected_line#*=}"
+        elif [[ ${#account_lines[@]} -eq 1 ]]; then
+            claude_config_dir="${account_lines[0]#*=}"
+        fi
+    fi
+
+    # --- Write task file ---
+    local total_steps=${#selected_plans[@]}
+    [[ $total_steps -eq 0 ]] && total_steps=1
+
+    # Header + rules (unquoted heredoc: Jinja2 {{ }} resolved at deploy time,
+    # bash $vars resolved at runtime; backticks escaped with \` to avoid
+    # command substitution)
+    cat > "$task_file" <<HEADER
+# Task: ${name}
+
+## Rules — read these first, they apply to every step
+
+- Work autonomously. Do not ask for permission or human approval at any point.
+- Use your own discretion on all decisions.
+- After completing each plan step, commit all changes with a message starting with
+  \`[PROGRESS N/T]\` where N is the completed step number and T is the total number
+  of steps, followed by a brief description of what was completed.
+  Example: \`[PROGRESS 2/${total_steps}] Completed: feature name\`
+- If you reach a point where you cannot continue for any reason, write a plain-text
+  description of why to:
+  {{ claude_runner_base_dir }}/tasks/${name}.stuck
+  Then stop immediately — do not loop or retry.
+HEADER
+
+    # Python rule (single-quoted heredoc: backticks safe, no variable expansion needed)
+    if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then
+        cat >> "$task_file" <<'PYTHON'
+- Always use `hatch run` for all Python commands:
+  `hatch run pytest`, `hatch run python`, etc.
+  Never use bare `python`, `python3`, or `pip` directly.
+PYTHON
+    fi
+
+    # Spec section
+    if [[ -n "$spec_file" && -f "$spec_file" ]]; then
+        {
+            printf '\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
+            cat "$spec_file"
+            printf '\n\n---\n'
+        } >> "$task_file"
+    fi
+
+    # Plans section
+    if [[ ${#selected_plans[@]} -gt 0 ]]; then
+        printf '\n## Plans — execute in this order\n' >> "$task_file"
+        local step=1
+        for plan_file in "${selected_plans[@]}"; do
+            {
+                printf '\n### Step %d of %d: %s\n\n---\n\n' \
+                    "$step" "${#selected_plans[@]}" "$(basename "$plan_file")"
+                cat "$plan_file"
+                printf '\n\n---\n'
+            } >> "$task_file"
+            ((step++))
+        done
     fi
 
     chmod 644 "$task_file"
+
+    # Update env file with selected account
+    if [[ -n "$claude_config_dir" ]]; then
+        sed -i '/^CLAUDE_CONFIG_DIR=/d' "$env_file"
+        echo "CLAUDE_CONFIG_DIR=${claude_config_dir}" >> "$env_file"
+    fi
+
+    echo ""
     echo "Instruction set for claude-runner@${name}"
     echo "Restart the runner to apply: systemctl restart claude-runner@${name}.service"
 }

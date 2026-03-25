@@ -21,9 +21,9 @@
         update_cache: yes
 
     - name: Install hatch via pipx for target user
-      become_user: "{{ target_user }}"
       command: pipx install hatch
       environment:
         HOME: "{{ target_user_home }}"
+        PATH: "{{ target_user_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
       args:
         creates: "{{ target_user_home }}/.local/bin/hatch"

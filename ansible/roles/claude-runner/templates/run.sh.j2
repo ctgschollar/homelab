@@ -7,6 +7,6 @@ REPO_PATH="${1:?Usage: run.sh <repo-path>}"
 cd "$REPO_PATH"
 
 while true; do
-    claude --resume --dangerously-skip-permissions
+    claude --continue --dangerously-skip-permissions
     sleep 5
 done

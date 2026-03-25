@@ -72,6 +72,7 @@ class IncidentRAG:
     def _embed(self, text: str) -> list[float]
     async def store_incident(self, incident: dict) -> None
     async def search_incidents(self, query: str, top_k: int = 5) -> list[dict]
+    async def count_incidents(self) -> int
 ```
 
 **`__init__`**
@@ -93,6 +94,7 @@ class IncidentRAG:
 
 **`store_incident(incident)`**
 - `incident` dict keys: `id`, `title`, `date`, `tags`, `inciting_incident`, `resolution`, `tools_used`
+- `date` is a `datetime` object (UTC); `write_incident_report` supplies `datetime.now(timezone.utc)`
 - Generates embedding from `title + " " + inciting_incident + " " + resolution`
 - Upserts into `incidents` table (`ON CONFLICT (id) DO UPDATE`)
 - If `log_rag_debug` is enabled, logs to stdout:
@@ -108,6 +110,10 @@ class IncidentRAG:
   - Query text
   - Each result: ID, title, similarity score, inciting_incident preview (first 100 chars)
 
+**`count_incidents()`**
+- Returns `SELECT COUNT(*) FROM incidents` as an integer
+- Used by `_next_incident_number()` to generate the next `INC-XXXX` ID
+
 ### Wiring
 
 `IncidentRAG` is instantiated in `cli.py` during `amain()`:
@@ -116,10 +122,17 @@ class IncidentRAG:
 rag = IncidentRAG(config.rag)
 await rag.init_schema()
 # then passed to ToolExecutor
-executor = ToolExecutor(config, rag=rag)
+executor = ToolExecutor(config, slack_client, rag=rag)
 ```
 
-If `config.rag.dsn` is `None` or empty, `IncidentRAG` is not instantiated and `ToolExecutor` receives `rag=None`. Tools that require RAG log a warning and return gracefully rather than crashing.
+`ToolExecutor.__init__` gains a new optional `rag` keyword argument:
+```python
+def __init__(self, config: AgentConfig, slack_client: Any, rag: IncidentRAG | None = None) -> None:
+    ...
+    self._rag = rag
+```
+
+If `config.rag.dsn` is `None` or empty, `IncidentRAG` is not instantiated and `ToolExecutor` receives `rag=None`. Tools that require RAG check `if self._rag is None`, log a warning, and return gracefully rather than crashing.
 
 ---
 
@@ -185,6 +198,11 @@ async def _next_incident_number(self) -> str:
 ## 5. Config Changes
 
 ### `agent/agent/config_schema.py`
+
+Add to imports at the top of `config_schema.py`:
+```python
+from pydantic import AliasChoices
+```
 
 New model:
 ```python

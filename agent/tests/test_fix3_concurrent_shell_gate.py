@@ -60,7 +60,7 @@ def _make_config() -> AgentConfig:
             git_author_name="Test",
             git_author_email="test@example.com",
         ),
-        monitor=MonitorConfig.model_construct(poll_interval=30, watched_stacks=[]),
+        monitor=MonitorConfig.model_construct(poll_interval=30),
         safety=SafetyConfig.model_construct(
             global_safe_mode=False,
             safe_mode_resources=SafeModeResourcesConfig(),

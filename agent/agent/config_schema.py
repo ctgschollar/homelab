@@ -53,7 +53,6 @@ class AnsibleConfig(BaseModel):
 
 class MonitorConfig(BaseModel):
     poll_interval: int
-    watched_stacks: list[str] = []
 
 
 class SafeModeResourcesConfig(BaseModel):

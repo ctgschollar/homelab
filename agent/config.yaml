@@ -37,11 +37,6 @@ ansible:
 
 monitor:
   poll_interval: 30
-  watched_stacks:
-  - traefik
-  - monitoring
-  - postgres
-  - coredns
 
 # -----------------------------------------------------------------------
 # Safety policy

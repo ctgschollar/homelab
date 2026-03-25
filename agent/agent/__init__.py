@@ -3,6 +3,7 @@ from .safety import SafetyPolicy, ResolvedTier
 from .monitor import MonitorDaemon
 from .slack import SlackClient
 from .tools import ToolExecutor
+from .rag import IncidentRAG
 
 __all__ = [
     "HomelabAgent",
@@ -11,4 +12,5 @@ __all__ = [
     "MonitorDaemon",
     "SlackClient",
     "ToolExecutor",
+    "IncidentRAG",
 ]

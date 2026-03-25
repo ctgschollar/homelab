@@ -8,6 +8,7 @@ set -euo pipefail
 REPOS_CONF="{{ claude_runner_base_dir }}/repos.conf"
 ENV_DIR="{{ claude_runner_base_dir }}/env"
 TASK_DIR="{{ claude_runner_base_dir }}/tasks"
+ACCOUNTS_CONF="{{ claude_runner_base_dir }}/accounts.conf"
 
 usage() {
     cat <<EOF
@@ -100,6 +101,67 @@ cmd_add_instruction() {
     echo "Restart the runner to apply: systemctl restart claude-runner@${name}.service"
 }
 
+cmd_add_account() {
+    local name="${1:?add-account requires a name}"
+    local config_dir="${2:?add-account requires a config-dir}"
+
+    if [[ ! -d "$config_dir" ]]; then
+        echo "Error: directory does not exist: $config_dir" >&2
+        exit 1
+    fi
+
+    config_dir="$(realpath "$config_dir")"
+
+    if grep -q "^${name}=" "$ACCOUNTS_CONF" 2>/dev/null; then
+        echo "Error: account '${name}' already exists" >&2
+        exit 1
+    fi
+
+    echo "${name}=${config_dir}" >> "$ACCOUNTS_CONF"
+    echo "Registered account '${name}' -> ${config_dir}"
+}
+
+cmd_remove_account() {
+    local name="${1:?remove-account requires a name}"
+
+    if ! grep -q "^${name}=" "$ACCOUNTS_CONF" 2>/dev/null; then
+        echo "Error: account '${name}' not found" >&2
+        exit 1
+    fi
+
+    local config_dir
+    config_dir=$(grep "^${name}=" "$ACCOUNTS_CONF" | cut -d= -f2-)
+
+    sed -i "/^${name}=/d" "$ACCOUNTS_CONF"
+
+    # Clear CLAUDE_CONFIG_DIR from any env files that used this account
+    while IFS='=' read -r inst_name _inst_path; do
+        [[ -z "$inst_name" || "$inst_name" == \#* ]] && continue
+        local env_file="${ENV_DIR}/${inst_name}"
+        if grep -q "^CLAUDE_CONFIG_DIR=${config_dir}$" "$env_file" 2>/dev/null; then
+            echo "Warning: claude-runner@${inst_name} was using this account — CLAUDE_CONFIG_DIR cleared"
+            sed -i '/^CLAUDE_CONFIG_DIR=/d' "$env_file"
+        fi
+    done < "$REPOS_CONF"
+
+    echo "Removed account '${name}'"
+}
+
+cmd_list_accounts() {
+    if [[ ! -s "$ACCOUNTS_CONF" ]]; then
+        echo "No accounts registered. Use: claude-runner add-account <name> <config-dir>"
+        return
+    fi
+
+    printf "%-20s %s\n" "NAME" "CONFIG DIR"
+    printf "%-20s %s\n" "----" "----------"
+
+    while IFS='=' read -r name config_dir; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        printf "%-20s %s\n" "$name" "$config_dir"
+    done < "$ACCOUNTS_CONF"
+}
+
 cmd_list() {
     if [[ ! -s "$REPOS_CONF" ]]; then
         echo "No repos configured. Use: claude-runner add <name> <path>"
@@ -134,5 +196,8 @@ case "${1:-}" in
     add-instruction) shift; cmd_add_instruction "$@" ;;
     list)            cmd_list ;;
     status)          shift; cmd_status "$@" ;;
+    add-account)     shift; cmd_add_account "$@" ;;
+    remove-account)  shift; cmd_remove_account "$@" ;;
+    list-accounts)   cmd_list_accounts ;;
     *)               usage ;;
 esac

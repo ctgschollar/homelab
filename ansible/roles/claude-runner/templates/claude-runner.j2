@@ -132,8 +132,6 @@ cmd_remove_account() {
     local config_dir
     config_dir=$(grep "^${name}=" "$ACCOUNTS_CONF" | cut -d= -f2-)
 
-    sed -i "/^${name}=/d" "$ACCOUNTS_CONF"
-
     # Clear CLAUDE_CONFIG_DIR from any env files that used this account
     while IFS='=' read -r inst_name _inst_path; do
         [[ -z "$inst_name" || "$inst_name" == \#* ]] && continue
@@ -143,6 +141,8 @@ cmd_remove_account() {
             sed -i '/^CLAUDE_CONFIG_DIR=/d' "$env_file"
         fi
     done < "$REPOS_CONF"
+
+    sed -i "/^${name}=/d" "$ACCOUNTS_CONF"
 
     echo "Removed account '${name}'"
 }

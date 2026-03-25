@@ -4,18 +4,18 @@
 
 REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
+TASK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.md"
 LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
 
 while true; do
-    expect -c "
-        log_file -a \"$LOG_FILE\"
-        spawn claude --continue --dangerously-skip-permissions
-        expect {
-            \"What should Claude do instead?\" { send \"Continue with the previous task.\r\"; exp_continue }
-            eof
-        }
-    "
+    if [[ ! -f "$TASK_FILE" ]]; then
+        echo "$(date -Iseconds) No task file found. Use: claude-runner add-instruction ${NAME} 'your instructions'" | tee -a "$LOG_FILE"
+        sleep 30
+        continue
+    fi
+
+    claude --print --dangerously-skip-permissions < "$TASK_FILE" 2>&1 | tee -a "$LOG_FILE"
     sleep 5
 done

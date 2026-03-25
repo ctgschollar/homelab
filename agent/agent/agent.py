@@ -716,7 +716,11 @@ class HomelabAgent:
         return None
 
     def _format_plan(self, tool_name: str, tool_input: dict) -> str:
-        inp_lines = "\n".join(f"  {k}: {v}" for k, v in tool_input.items()
+        def _truncate(v: object, limit: int = 300) -> str:
+            s = str(v)
+            return s if len(s) <= limit else s[:limit] + "…(truncated)"
+
+        inp_lines = "\n".join(f"  {k}: {_truncate(v)}" for k, v in tool_input.items()
                               if k not in ("agent_proposed_tier", "agent_reasoning"))
         return f"*Tool:* `{tool_name}`\n*Inputs:*\n{inp_lines}"
 

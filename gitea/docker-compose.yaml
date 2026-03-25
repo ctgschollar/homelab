@@ -22,7 +22,9 @@ services:
       GITEA__server__DOMAIN: "gitea.schollar.dev"
       GITEA__server__ROOT_URL: "https://gitea.schollar.dev"
       GITEA__server__HTTP_PORT: "3000"
-      GITEA__server__DISABLE_SSH: "true"
+      GITEA__server__DISABLE_SSH: "false"
+      GITEA__server__SSH_DOMAIN: "gitea.schollar.dev"
+      GITEA__server__SSH_PORT: "2222"
 
       # --- Database (shared Postgres on traefik-net) ---
       GITEA__database__DB_TYPE: "postgres"
@@ -55,6 +57,11 @@ services:
         traefik.http.routers.gitea.entrypoints: "websecure"
         traefik.http.routers.gitea.tls.certresolver: cf
         traefik.http.services.gitea.loadbalancer.server.port: "3000"
+
+        traefik.tcp.routers.gitea-ssh.rule: "HostSNI(`*`)"
+        traefik.tcp.routers.gitea-ssh.entrypoints: "gitea-ssh"
+        traefik.tcp.routers.gitea-ssh.service: "gitea-ssh-svc"
+        traefik.tcp.services.gitea-ssh-svc.loadbalancer.server.port: "22"
 
         prometheus.blackbox: "true"
         metrics.probe_url: "https://gitea.schollar.dev"

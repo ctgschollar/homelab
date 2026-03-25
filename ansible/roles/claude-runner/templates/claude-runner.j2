@@ -54,7 +54,7 @@ cmd_add() {
     systemctl daemon-reload
     systemctl enable --now "claude-runner@${name}.service"
     echo "Started claude-runner@${name} for ${path}"
-    echo "Tip: set instructions with: claude-runner add-instruction ${name} 'your task'"
+    echo "Tip: set instructions with: claude-runner add-instruction ${name}"
 }
 
 cmd_remove() {

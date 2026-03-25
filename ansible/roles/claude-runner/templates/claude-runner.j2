@@ -101,6 +101,9 @@ cmd_add_instruction() {
                 ((i++))
             done
             read -rp "> " spec_idx
+            if ! [[ "$spec_idx" =~ ^[0-9]+$ ]] || (( spec_idx < 1 || spec_idx > ${#spec_files[@]} )); then
+                echo "Error: invalid selection" >&2; exit 1
+            fi
             spec_file="${spec_files[$((spec_idx-1))]}"
             spec_rel="docs/superpowers/specs/$(basename "$spec_file")"
         else
@@ -127,6 +130,9 @@ cmd_add_instruction() {
             IFS=',' read -ra plan_indices <<< "$plan_selection"
             for idx in "${plan_indices[@]}"; do
                 idx="${idx// /}"
+                if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 1 || idx > ${#plan_files[@]} )); then
+                    echo "Error: invalid plan selection: $idx" >&2; exit 1
+                fi
                 selected_plans+=("${plan_files[$((idx-1))]}")
             done
         else
@@ -154,6 +160,9 @@ cmd_add_instruction() {
                 ((i++))
             done
             read -rp "> " acct_idx
+            if ! [[ "$acct_idx" =~ ^[0-9]+$ ]] || (( acct_idx < 1 || acct_idx > ${#account_lines[@]} )); then
+                echo "Error: invalid selection" >&2; exit 1
+            fi
             local selected_line="${account_lines[$((acct_idx-1))]}"
             claude_config_dir="${selected_line#*=}"
         elif [[ ${#account_lines[@]} -eq 1 ]]; then
@@ -163,7 +172,6 @@ cmd_add_instruction() {
 
     # --- Write task file ---
     local total_steps=${#selected_plans[@]}
-    [[ $total_steps -eq 0 ]] && total_steps=1
 
     # Header + rules (unquoted heredoc: Jinja2 {{ }} resolved at deploy time,
     # bash $vars resolved at runtime; backticks escaped with \` to avoid
@@ -175,15 +183,20 @@ cmd_add_instruction() {
 
 - Work autonomously. Do not ask for permission or human approval at any point.
 - Use your own discretion on all decisions.
-- After completing each plan step, commit all changes with a message starting with
-  \`[PROGRESS N/T]\` where N is the completed step number and T is the total number
-  of steps, followed by a brief description of what was completed.
-  Example: \`[PROGRESS 2/${total_steps}] Completed: feature name\`
 - If you reach a point where you cannot continue for any reason, write a plain-text
   description of why to:
   {{ claude_runner_base_dir }}/tasks/${name}.stuck
   Then stop immediately — do not loop or retry.
 HEADER
+
+    if [[ $total_steps -gt 0 ]]; then
+        cat >> "$task_file" <<PROGRESS
+- After completing each plan step, commit all changes with a message starting with
+  \`[PROGRESS N/T]\` where N is the completed step number and T is the total number
+  of steps, followed by a brief description of what was completed.
+  Example: \`[PROGRESS 2/${total_steps}] Completed: feature name\`
+PROGRESS
+    fi
 
     # Python rule (single-quoted heredoc: backticks safe, no variable expansion needed)
     if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then

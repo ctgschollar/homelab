@@ -13,7 +13,7 @@ while true; do
         log_file -a \"$LOG_FILE\"
         spawn claude --continue --dangerously-skip-permissions
         expect {
-            \"What should Claude do instead?\" { send \"\r\"; exp_continue }
+            \"What should Claude do instead?\" { send \"Continue with the previous task.\r\"; exp_continue }
             eof
         }
     "

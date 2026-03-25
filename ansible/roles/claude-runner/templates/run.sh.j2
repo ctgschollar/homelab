@@ -5,17 +5,32 @@
 REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
 TASK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.md"
+STUCK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.stuck"
 LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
 
 while true; do
+    # Halt if a stuck token exists — requires human intervention to clear
+    if [[ -f "$STUCK_FILE" ]]; then
+        echo "$(date -Iseconds) STUCK: $(cat "$STUCK_FILE"). Clear with: claude-runner clear-stuck ${NAME}" | tee -a "$LOG_FILE"
+        sleep 60
+        continue
+    fi
+
     if [[ ! -f "$TASK_FILE" ]]; then
-        echo "$(date -Iseconds) No task file found. Use: claude-runner add-instruction ${NAME} 'your instructions'" | tee -a "$LOG_FILE"
+        echo "$(date -Iseconds) No task file found. Use: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
         sleep 30
         continue
     fi
 
-    claude --print --dangerously-skip-permissions < "$TASK_FILE" 2>&1 | tee -a "$LOG_FILE"
-    sleep 5
+    # Resume context: inject last [PROGRESS] commit message as a prefix
+    LAST_PROGRESS=$(git -C "$REPO_PATH" log --oneline 2>/dev/null | grep '\[PROGRESS' | head -1)
+    if [[ -n "$LAST_PROGRESS" ]]; then
+        RESUME_PREFIX="RESUME CONTEXT: Last completed progress: ${LAST_PROGRESS}\nContinue from the next incomplete step in the plan.\n\n"
+    else
+        RESUME_PREFIX=""
+    fi
+
+    { printf "%b" "$RESUME_PREFIX"; cat "$TASK_FILE"; } | claude --print --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 done

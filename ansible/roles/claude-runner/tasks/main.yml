@@ -44,6 +44,14 @@
     group: root
     mode: '0755'
 
+- name: Create logs directory
+  file:
+    path: "{{ claude_runner_base_dir }}/logs"
+    state: directory
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0755'
+
 - name: Install repos.conf (skip if already populated)
   copy:
     src: repos.conf

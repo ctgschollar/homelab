@@ -2,5 +2,5 @@
 # claude-runner Role - Default Variables
 
 claude_runner_base_dir: /opt/claude-runner
-claude_user: root
-claude_user_home: /root
+claude_user: claude
+claude_user_home: /home/claude

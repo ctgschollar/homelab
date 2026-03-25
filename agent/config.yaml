@@ -75,6 +75,7 @@ safety:
     get_prometheus_alerts:   1       # read-only
     slack_notify:            1       # always allowed
     git_pull:                1
+    search_incidents:        1       # read-only DB query
     write_incident_report:   1
     commit_config_updates:   2
     docker_service_scale:    2
@@ -97,33 +98,13 @@ safety:
     force_tier2: []  # e.g. ['my-deploy\.sh']
 
 # -----------------------------------------------------------------------
-# Incident reports
+# Incident RAG
 # -----------------------------------------------------------------------
-reports:
-  # Path relative to ansible.repo_path where reports are saved
-  path: "reports"
-  # Predefined tags — agent must choose from this list
-  # Event type (choose one): failure, recovery, deployment, rollback,
-  #   config-change, maintenance, investigation, user-request
-  # Domain (choose one or more): docker, ansible, storage, networking,
-  #   monitoring, database, security, media
-  tags:
-    - failure
-    - recovery
-    - deployment
-    - rollback
-    - config-change
-    - maintenance
-    - investigation
-    - user-request
-    - docker
-    - ansible
-    - storage
-    - networking
-    - monitoring
-    - database
-    - security
-    - media
+rag:
+  database: homelab_agent
+  log_rag_debug: false
+  # dsn: set via AGENT_POSTGRES_DSN environment variable
+  # format: postgresql://postgres:<password>@pg.schollar.dev:5432/postgres
 
 # -----------------------------------------------------------------------
 # Action log

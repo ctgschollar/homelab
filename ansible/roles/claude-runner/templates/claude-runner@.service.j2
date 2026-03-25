@@ -6,7 +6,6 @@ Wants=network-online.target
 [Service]
 User={{ claude_user }}
 EnvironmentFile={{ claude_runner_base_dir }}/env/%i
-WorkingDirectory=${REPO_PATH}
 ExecStart={{ claude_runner_base_dir }}/run.sh ${REPO_PATH}
 Restart=always
 RestartSec=5

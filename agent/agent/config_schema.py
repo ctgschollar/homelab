@@ -74,9 +74,10 @@ class SafetyConfig(BaseModel):
     shell_command_guards: ShellCommandGuardsConfig = Field(default_factory=ShellCommandGuardsConfig)
 
 
-class ReportsConfig(BaseModel):
-    path: str
-    tags: list[str]
+class RagConfig(BaseModel):
+    dsn: Optional[str] = Field(default=None)
+    database: str = "homelab_agent"
+    log_rag_debug: bool = False
 
 
 class ActionLogConfig(BaseModel):
@@ -115,6 +116,7 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
             ("slack", "bot_token"): "SLACK_BOT_TOKEN",
             ("slack", "signing_secret"): "SLACK_SIGNING_SECRET",
             ("ansible", "git_token"): "AGENT_GITHUB_TOKEN",
+            ("rag", "dsn"): "AGENT_POSTGRES_DSN",
         }
         for (section, field), env_var in _env_map.items():
             val = os.environ.get(env_var)
@@ -134,7 +136,7 @@ class AgentConfig(BaseSettings):
     ansible: AnsibleConfig
     monitor: MonitorConfig
     safety: SafetyConfig
-    reports: ReportsConfig
+    rag: RagConfig = Field(default_factory=RagConfig)
     action_log: ActionLogConfig
     approval_listener: ApprovalListenerConfig = ApprovalListenerConfig()
     history: HistoryConfig = HistoryConfig()

@@ -367,7 +367,7 @@ class ToolExecutor:
         self._git_author_email = config.ansible.git_author_email
         self._rollback_state_path = Path(config.rollback.state_path)
 
-        self._reports_path = Path(self._repo_path) / config.reports.path
+        self._reports_path = Path(self._repo_path) / "reports"
         self._action_log_path = Path(config.action_log.path)
 
         # Secrets to scrub from all subprocess output before logging/returning

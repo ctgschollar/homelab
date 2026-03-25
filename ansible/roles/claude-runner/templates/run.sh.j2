@@ -9,6 +9,13 @@ LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 cd "$REPO_PATH"
 
 while true; do
-    unbuffer claude --continue --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+    expect -c "
+        log_file -a \"$LOG_FILE\"
+        spawn claude --continue --dangerously-skip-permissions
+        expect {
+            \"What should Claude do instead?\" { send \"\r\"; exp_continue }
+            eof
+        }
+    "
     sleep 5
 done

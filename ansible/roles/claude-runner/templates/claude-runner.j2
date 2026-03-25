@@ -15,13 +15,16 @@ usage() {
 Usage: claude-runner <command> [args]
 
 Commands:
-  add <name> <path>              Register a repo and start its runner service
-  remove <name>                  Stop and remove a runner
-  add-instruction <name> [text]  Set the task instruction for a runner
-                                 (reads from stdin if no text given)
-  add-instruction <name> -f <file>  Set instruction from a file
-  list                           Show all runners and their service status
-  status <name>                  Tail the journal for a runner
+  add <name> <path>                    Register a repo and start its runner service
+  remove <name>                        Stop and remove a runner
+  add-instruction <name>               Interactively set the task for a runner
+  list                                 Show all runners and their service status
+  status <name>                        Tail the journal for a runner
+  list-stuck                           Show all runners with a stuck token
+  clear-stuck <name>                   Remove the stuck token for a runner
+  add-account <name> <config-dir>      Register a Claude account config dir
+  remove-account <name>                Deregister a Claude account
+  list-accounts                        Show all registered Claude accounts
 EOF
     exit 1
 }
@@ -374,10 +377,10 @@ case "${1:-}" in
     add-instruction) shift; cmd_add_instruction "$@" ;;
     list)            cmd_list ;;
     status)          shift; cmd_status "$@" ;;
+    list-stuck)      cmd_list_stuck ;;
+    clear-stuck)     shift; cmd_clear_stuck "$@" ;;
     add-account)     shift; cmd_add_account "$@" ;;
     remove-account)  shift; cmd_remove_account "$@" ;;
     list-accounts)   cmd_list_accounts ;;
-    list-stuck)      cmd_list_stuck ;;
-    clear-stuck)     shift; cmd_clear_stuck "$@" ;;
     *)               usage ;;
 esac

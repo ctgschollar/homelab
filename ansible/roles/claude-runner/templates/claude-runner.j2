@@ -68,6 +68,7 @@ cmd_remove() {
     # Remove env file and task file
     rm -f "${ENV_DIR}/${name}"
     rm -f "${TASK_DIR}/${name}.md"
+    rm -f "${TASK_DIR}/${name}.stuck"
 
     echo "Removed claude-runner@${name}"
 }
@@ -173,7 +174,7 @@ cmd_list_stuck() {
         local name
         name=$(basename "$stuck_file" .stuck)
         local reason
-        reason=$(cat "$stuck_file")
+        reason=$(head -1 "$stuck_file")
         printf "%-20s %s\n" "$name" "$reason"
         found=1
     done

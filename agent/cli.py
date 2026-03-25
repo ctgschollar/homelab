@@ -431,6 +431,10 @@ async def amain(args: argparse.Namespace) -> None:
 
     agent = HomelabAgent(config)
 
+    # Initialise RAG schema (creates DB + table if not already present)
+    if agent._rag is not None:
+        await agent._rag.init_schema()
+
     log_path = config.action_log.path
     action_logger = ActionLogger(log_path)
 

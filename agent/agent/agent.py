@@ -15,6 +15,7 @@ from rich.text import Text
 
 from .config_schema import AgentConfig
 from .prompts import build_system_prompt
+from .rag import IncidentRAG
 from .safety import SafetyPolicy
 from .slack import SlackClient
 from .tools import TOOL_DEFINITIONS, ToolExecutor
@@ -353,7 +354,11 @@ class HomelabAgent:
 
         self._logger = ActionLogger(config.action_log.path)
         self._safety = SafetyPolicy(config)
-        self._tools = ToolExecutor(config, self._slack)
+        # RAG — only if DSN is configured. __init__ is sync; init_schema() called from cli.py.
+        self._rag: IncidentRAG | None = (
+            IncidentRAG(config.rag) if config.rag.dsn else None
+        )
+        self._tools = ToolExecutor(config, self._slack, rag=self._rag)
         self._pending = PendingApprovals()
 
         self._history_path = Path(config.history.path)

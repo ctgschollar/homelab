@@ -4,21 +4,31 @@
 
 REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
-TASK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.md"
-STUCK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.stuck"
-DONE_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.done"
+
+TASK_DIR="{{ claude_runner_base_dir }}/tasks"
+TASK_FILE="${TASK_DIR}/${NAME}.md"
+STUCK_FILE="${TASK_DIR}/${NAME}.stuck"
+DONE_FILE="${TASK_DIR}/${NAME}.done"
+STEP_FILE="${TASK_DIR}/${NAME}.step"
+TOTAL_FILE="${TASK_DIR}/${NAME}.total"
+START_SHA_FILE="${TASK_DIR}/${NAME}.start-sha"
 LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
 
+# Record the starting commit once — used to build the progress log on every run
+if [[ ! -f "$START_SHA_FILE" ]]; then
+    git rev-parse HEAD > "$START_SHA_FILE"
+fi
+
 while true; do
-    # Halt if all work is complete — exit 0 so systemd does not restart
+    # Halt if all steps complete — exit 0 prevents systemd restart
     if [[ -f "$DONE_FILE" ]]; then
         echo "$(date -Iseconds) DONE: all work complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
         exit 0
     fi
 
-    # Halt if a stuck token exists — requires human intervention to clear
+    # Halt if stuck — requires human intervention
     if [[ -f "$STUCK_FILE" ]]; then
         echo "$(date -Iseconds) STUCK: $(cat "$STUCK_FILE"). Clear with: claude-runner clear-stuck ${NAME}" | tee -a "$LOG_FILE"
         sleep 60
@@ -31,19 +41,50 @@ while true; do
         continue
     fi
 
-    # Resume context: inject last [PROGRESS] commit message as a prefix
-    LAST_PROGRESS=$(git -C "$REPO_PATH" log --oneline 2>/dev/null | grep '\[PROGRESS' | head -1)
-    if [[ -n "$LAST_PROGRESS" ]]; then
-        RESUME_PREFIX="RESUME CONTEXT: Last completed progress: ${LAST_PROGRESS}\nContinue from the next incomplete step in the plan.\n\n"
-    else
-        RESUME_PREFIX=""
+    STEP=$(cat "$STEP_FILE" 2>/dev/null || echo 1)
+    TOTAL=$(cat "$TOTAL_FILE" 2>/dev/null || echo 1)
+    PLAN_FILE="${TASK_DIR}/${NAME}.plan-${STEP}.md"
+    STEP_DONE_FILE="${TASK_DIR}/${NAME}.step-${STEP}.done"
+
+    if [[ ! -f "$PLAN_FILE" ]]; then
+        echo "$(date -Iseconds) No plan file for step ${STEP}. Use: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
+        sleep 30
+        continue
     fi
 
-    { printf "%b" "$RESUME_PREFIX"; cat "$TASK_FILE"; } | claude --print --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+    # Build progress context from git log since task started
+    START_SHA=$(cat "$START_SHA_FILE")
+    GIT_LOG=$(git log --oneline "${START_SHA}..HEAD" 2>/dev/null)
+    if [[ -z "$GIT_LOG" ]]; then
+        GIT_LOG="(no commits yet)"
+    fi
 
-    # Check if Claude wrote a done file during this run
-    if [[ -f "$DONE_FILE" ]]; then
-        echo "$(date -Iseconds) DONE: all work complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
-        exit 0
+    # Build the prompt and pipe to claude
+    {
+        cat "$TASK_FILE"
+        printf '\n\n## Progress so far\n\n'
+        printf '%s\n' "$GIT_LOG"
+        printf '\n\n## Current step: %d of %d\n\n' "$STEP" "$TOTAL"
+        cat "$PLAN_FILE"
+    } | claude --print --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+
+    # Decision tree
+    if [[ -f "$STUCK_FILE" ]]; then
+        echo "$(date -Iseconds) STUCK during step ${STEP}/${TOTAL}" | tee -a "$LOG_FILE"
+        continue
+    fi
+
+    if [[ -f "$STEP_DONE_FILE" ]]; then
+        echo "$(date -Iseconds) Step ${STEP}/${TOTAL} complete: $(cat "$STEP_DONE_FILE")" | tee -a "$LOG_FILE"
+        if [[ "$STEP" -ge "$TOTAL" ]]; then
+            echo "$(date -Iseconds) All ${TOTAL} steps complete." | tee -a "$LOG_FILE"
+            echo "All ${TOTAL} steps completed." > "$DONE_FILE"
+            exit 0
+        else
+            echo $((STEP + 1)) > "$STEP_FILE"
+        fi
+    else
+        echo "$(date -Iseconds) Step ${STEP}/${TOTAL} did not complete (context reset?) — retrying" | tee -a "$LOG_FILE"
+        sleep 5
     fi
 done

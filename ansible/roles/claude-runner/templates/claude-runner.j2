@@ -76,6 +76,11 @@ cmd_remove() {
     rm -f "${TASK_DIR}/${name}.md"
     rm -f "${TASK_DIR}/${name}.stuck"
     rm -f "${TASK_DIR}/${name}.done"
+    rm -f "${TASK_DIR}/${name}.step"
+    rm -f "${TASK_DIR}/${name}.total"
+    rm -f "${TASK_DIR}/${name}.start-sha"
+    rm -f "${TASK_DIR}/${name}".plan-*.md
+    rm -f "${TASK_DIR}/${name}".step-*.done
 
     echo "Removed claude-runner@${name}"
 }
@@ -177,8 +182,7 @@ cmd_add_instruction() {
         fi
     fi
 
-    # --- Write task file ---
-    local total_steps=${#selected_plans[@]}
+    # --- Write task file (rules + spec; plans are written as separate step files) ---
 
     # Header + rules (unquoted heredoc: Jinja2 {{ }} resolved at deploy time,
     # bash $vars resolved at runtime; backticks escaped with \` to avoid
@@ -194,19 +198,12 @@ cmd_add_instruction() {
   description of why to:
   ${TASK_DIR}/${name}.stuck
   Then stop immediately — do not loop or retry.
-- When ALL work in this task is fully complete, write a one-line summary to:
-  ${TASK_DIR}/${name}.done
-  The runner will stop automatically — do not write this file until everything is done.
+- When the current step is complete, write a one-line summary to:
+  ${TASK_DIR}/${name}.step-N.done
+  where N is the step number shown in the "Current step" header below.
+  The runner will advance to the next step automatically.
+  Do not attempt steps beyond the one shown — stop after writing the done file.
 HEADER
-
-    if [[ $total_steps -gt 0 ]]; then
-        cat >> "$task_file" <<PROGRESS
-- After completing each plan step, commit all changes with a message starting with
-  \`[PROGRESS N/T]\` where N is the completed step number and T is the total number
-  of steps, followed by a brief description of what was completed.
-  Example: \`[PROGRESS 2/${total_steps}] Completed: feature name\`
-PROGRESS
-    fi
 
     # Python rule (single-quoted heredoc: backticks safe, no variable expansion needed)
     if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then
@@ -217,31 +214,36 @@ PROGRESS
 PYTHON
     fi
 
-    # Spec section
+    # Spec section — appended to the rules file, visible on every step
     if [[ -n "$spec_file" && -f "$spec_file" ]]; then
         {
-            printf '\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
+            printf '\n\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
             cat "$spec_file"
             printf '\n\n---\n'
         } >> "$task_file"
     fi
 
-    # Plans section
-    if [[ ${#selected_plans[@]} -gt 0 ]]; then
-        printf '\n## Plans — execute in this order\n' >> "$task_file"
+    chmod 644 "$task_file"
+
+    # Write each plan as an individual step file
+    local total_steps=${#selected_plans[@]}
+    if [[ $total_steps -gt 0 ]]; then
         local step=1
         for plan_file in "${selected_plans[@]}"; do
-            {
-                printf '\n### Step %d of %d: %s\n\n---\n\n' \
-                    "$step" "${#selected_plans[@]}" "$(basename "$plan_file")"
-                cat "$plan_file"
-                printf '\n\n---\n'
-            } >> "$task_file"
+            local step_file="${TASK_DIR}/${name}.plan-${step}.md"
+            cp "$plan_file" "$step_file"
+            chmod 644 "$step_file"
             ((step++))
         done
+        echo "$total_steps" > "${TASK_DIR}/${name}.total"
+    else
+        echo "1" > "${TASK_DIR}/${name}.total"
     fi
 
-    chmod 644 "$task_file"
+    # Initialise step counter (reset to 1 on re-instruction)
+    echo "1" > "${TASK_DIR}/${name}.step"
+    # Clear start-sha so the git log resets from this point on redeploy
+    rm -f "${TASK_DIR}/${name}.start-sha"
 
     # Update env file with selected account
     if [[ -n "$claude_config_dir" ]]; then
@@ -392,8 +394,8 @@ cmd_list() {
         return
     fi
 
-    printf "%-20s %-40s %-10s %s\n" "NAME" "PATH" "STATUS" "INSTRUCTION"
-    printf "%-20s %-40s %-10s %s\n" "----" "----" "------" "-----------"
+    printf "%-20s %-40s %-10s %-8s %s\n" "NAME" "PATH" "STATUS" "STEP" "INSTRUCTION"
+    printf "%-20s %-40s %-10s %-8s %s\n" "----" "----" "------" "----" "-----------"
 
     while IFS='=' read -r name path; do
         [[ -z "$name" || "$name" == \#* ]] && continue
@@ -405,13 +407,21 @@ cmd_list() {
         else
             status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
         fi
+        local step total step_col
+        step=$(cat "${TASK_DIR}/${name}.step" 2>/dev/null || echo "-")
+        total=$(cat "${TASK_DIR}/${name}.total" 2>/dev/null || echo "-")
+        if [[ "$step" == "-" ]]; then
+            step_col="-"
+        else
+            step_col="${step}/${total}"
+        fi
         local instruction
         if [[ -f "${TASK_DIR}/${name}.md" ]]; then
             instruction="set"
         else
             instruction="none"
         fi
-        printf "%-20s %-40s %-10s %s\n" "$name" "$path" "$status" "$instruction"
+        printf "%-20s %-40s %-10s %-8s %s\n" "$name" "$path" "$status" "$step_col" "$instruction"
     done < "$REPOS_CONF"
 }
 

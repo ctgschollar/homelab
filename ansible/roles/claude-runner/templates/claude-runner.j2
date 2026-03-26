@@ -23,6 +23,8 @@ Commands:
   status <name>                        Tail the journal for a runner
   list-stuck                           Show all runners with a stuck token
   clear-stuck <name>                   Remove the stuck token for a runner
+  list-done                            Show all runners that have signalled completion
+  clear-done <name>                    Remove the done file and restart the runner
   add-account <name> <config-dir>      Register a Claude account config dir
   remove-account <name>                Deregister a Claude account
   list-accounts                        Show all registered Claude accounts
@@ -73,6 +75,12 @@ cmd_remove() {
     rm -f "${ENV_DIR}/${name}"
     rm -f "${TASK_DIR}/${name}.md"
     rm -f "${TASK_DIR}/${name}.stuck"
+    rm -f "${TASK_DIR}/${name}.done"
+    rm -f "${TASK_DIR}/${name}.step"
+    rm -f "${TASK_DIR}/${name}.total"
+    rm -f "${TASK_DIR}/${name}.start-sha"
+    rm -f "${TASK_DIR}/${name}".plan-*.md
+    rm -f "${TASK_DIR}/${name}".step-*.done
 
     echo "Removed claude-runner@${name}"
 }
@@ -174,8 +182,7 @@ cmd_add_instruction() {
         fi
     fi
 
-    # --- Write task file ---
-    local total_steps=${#selected_plans[@]}
+    # --- Write task file (rules + spec; plans are written as separate step files) ---
 
     # Header + rules (unquoted heredoc: Jinja2 {{ }} resolved at deploy time,
     # bash $vars resolved at runtime; backticks escaped with \` to avoid
@@ -191,16 +198,12 @@ cmd_add_instruction() {
   description of why to:
   ${TASK_DIR}/${name}.stuck
   Then stop immediately — do not loop or retry.
+- When the current step is complete, write a one-line summary to:
+  ${TASK_DIR}/${name}.step-N.done
+  where N is the step number shown in the "Current step" header below.
+  The runner will advance to the next step automatically.
+  Do not attempt steps beyond the one shown — stop after writing the done file.
 HEADER
-
-    if [[ $total_steps -gt 0 ]]; then
-        cat >> "$task_file" <<PROGRESS
-- After completing each plan step, commit all changes with a message starting with
-  \`[PROGRESS N/T]\` where N is the completed step number and T is the total number
-  of steps, followed by a brief description of what was completed.
-  Example: \`[PROGRESS 2/${total_steps}] Completed: feature name\`
-PROGRESS
-    fi
 
     # Python rule (single-quoted heredoc: backticks safe, no variable expansion needed)
     if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then
@@ -211,31 +214,36 @@ PROGRESS
 PYTHON
     fi
 
-    # Spec section
+    # Spec section — appended to the rules file, visible on every step
     if [[ -n "$spec_file" && -f "$spec_file" ]]; then
         {
-            printf '\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
+            printf '\n\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
             cat "$spec_file"
             printf '\n\n---\n'
         } >> "$task_file"
     fi
 
-    # Plans section
-    if [[ ${#selected_plans[@]} -gt 0 ]]; then
-        printf '\n## Plans — execute in this order\n' >> "$task_file"
+    chmod 644 "$task_file"
+
+    # Write each plan as an individual step file
+    local total_steps=${#selected_plans[@]}
+    if [[ $total_steps -gt 0 ]]; then
         local step=1
         for plan_file in "${selected_plans[@]}"; do
-            {
-                printf '\n### Step %d of %d: %s\n\n---\n\n' \
-                    "$step" "${#selected_plans[@]}" "$(basename "$plan_file")"
-                cat "$plan_file"
-                printf '\n\n---\n'
-            } >> "$task_file"
+            local step_file="${TASK_DIR}/${name}.plan-${step}.md"
+            cp "$plan_file" "$step_file"
+            chmod 644 "$step_file"
             ((step++))
         done
+        echo "$total_steps" > "${TASK_DIR}/${name}.total"
+    else
+        echo "1" > "${TASK_DIR}/${name}.total"
     fi
 
-    chmod 644 "$task_file"
+    # Initialise step counter (reset to 1 on re-instruction)
+    echo "1" > "${TASK_DIR}/${name}.step"
+    # Clear start-sha so the git log resets from this point on redeploy
+    rm -f "${TASK_DIR}/${name}.start-sha"
 
     # Update env file with selected account
     if [[ -n "$claude_config_dir" ]]; then
@@ -309,6 +317,42 @@ cmd_list_accounts() {
     done < "$ACCOUNTS_CONF"
 }
 
+cmd_list_done() {
+    local found=0
+
+    printf "%-20s %s\n" "NAME" "SUMMARY"
+    printf "%-20s %s\n" "----" "-------"
+
+    for done_file in "${TASK_DIR}"/*.done; do
+        [[ -f "$done_file" ]] || continue
+        local name
+        name=$(basename "$done_file" .done)
+        local summary
+        summary=$(head -1 "$done_file")
+        printf "%-20s %s\n" "$name" "$summary"
+        found=1
+    done
+
+    if [[ $found -eq 0 ]]; then
+        echo "No completed runners."
+    fi
+}
+
+cmd_clear_done() {
+    local name="${1:?clear-done requires a name}"
+    local done_file="${TASK_DIR}/${name}.done"
+
+    if [[ ! -f "$done_file" ]]; then
+        echo "Error: no done file found for '${name}'" >&2
+        exit 1
+    fi
+
+    rm "$done_file"
+    echo "Cleared done file for '${name}'"
+    systemctl restart "claude-runner@${name}.service"
+    echo "Restarted claude-runner@${name}"
+}
+
 cmd_list_stuck() {
     local found=0
 
@@ -350,20 +394,34 @@ cmd_list() {
         return
     fi
 
-    printf "%-20s %-40s %-10s %s\n" "NAME" "PATH" "STATUS" "INSTRUCTION"
-    printf "%-20s %-40s %-10s %s\n" "----" "----" "------" "-----------"
+    printf "%-20s %-40s %-10s %-8s %s\n" "NAME" "PATH" "STATUS" "STEP" "INSTRUCTION"
+    printf "%-20s %-40s %-10s %-8s %s\n" "----" "----" "------" "----" "-----------"
 
     while IFS='=' read -r name path; do
         [[ -z "$name" || "$name" == \#* ]] && continue
         local status
-        status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
+        if [[ -f "${TASK_DIR}/${name}.done" ]]; then
+            status="done"
+        elif [[ -f "${TASK_DIR}/${name}.stuck" ]]; then
+            status="stuck"
+        else
+            status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
+        fi
+        local step total step_col
+        step=$(cat "${TASK_DIR}/${name}.step" 2>/dev/null || echo "-")
+        total=$(cat "${TASK_DIR}/${name}.total" 2>/dev/null || echo "-")
+        if [[ "$step" == "-" ]]; then
+            step_col="-"
+        else
+            step_col="${step}/${total}"
+        fi
         local instruction
         if [[ -f "${TASK_DIR}/${name}.md" ]]; then
             instruction="set"
         else
             instruction="none"
         fi
-        printf "%-20s %-40s %-10s %s\n" "$name" "$path" "$status" "$instruction"
+        printf "%-20s %-40s %-10s %-8s %s\n" "$name" "$path" "$status" "$step_col" "$instruction"
     done < "$REPOS_CONF"
 }
 
@@ -380,6 +438,8 @@ case "${1:-}" in
     status)          shift; cmd_status "$@" ;;
     list-stuck)      cmd_list_stuck ;;
     clear-stuck)     shift; cmd_clear_stuck "$@" ;;
+    list-done)       cmd_list_done ;;
+    clear-done)      shift; cmd_clear_done "$@" ;;
     add-account)     shift; cmd_add_account "$@" ;;
     remove-account)  shift; cmd_remove_account "$@" ;;
     list-accounts)   cmd_list_accounts ;;

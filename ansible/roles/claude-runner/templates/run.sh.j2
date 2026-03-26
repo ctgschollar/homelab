@@ -38,6 +38,49 @@ while true; do
         continue
     fi
 
+    # Planning pass: generate plan if .total does not exist yet
+    if [[ ! -f "$TOTAL_FILE" ]]; then
+        if [[ ! -f "$SPEC_REF_FILE" ]]; then
+            echo "$(date -Iseconds) No spec-ref file for ${NAME}. Re-run: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
+            sleep 30
+            continue
+        fi
+
+        SPEC_REF=$(cat "$SPEC_REF_FILE")
+        PLAN_NAME="${SPEC_REF%-design.md}.md"
+        EXPECTED_PLAN="${REPO_PATH}/docs/superpowers/plans/${PLAN_NAME}"
+
+        # One-time setup: create branch and record start SHA
+        if [[ ! -f "$BRANCH_FILE" ]]; then
+            BRANCH="claude-runner/${NAME}"
+            git checkout -B "$BRANCH"
+            echo "$BRANCH" > "$BRANCH_FILE"
+            git rev-parse HEAD > "$START_SHA_FILE"
+        fi
+
+        {
+            cat "$TASK_FILE"
+            printf '\n\n## Your job — PLANNING PHASE\n\n'
+            printf 'You are in the planning phase. Do not write any implementation code yet.\n\n'
+            printf '1. Read the spec above carefully.\n'
+            printf '2. Invoke the `superpowers:writing-plans` skill to create an implementation plan.\n'
+            printf '3. The writing-plans skill will save the plan to docs/superpowers/plans/ — let it use its default naming.\n'
+            printf '4. Commit the plan file with: git add docs/superpowers/plans/ && git commit -m "plan: %s"\n' "$NAME"
+            printf '5. Stop. Do not implement anything.\n'
+        } | claude --print --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+
+        if [[ -f "$EXPECTED_PLAN" ]]; then
+            cp "$EXPECTED_PLAN" "${TASK_DIR}/${NAME}.plan-1.md"
+            echo "1" > "$TOTAL_FILE"
+            echo "1" > "$STEP_FILE"
+            echo "$(date -Iseconds) Planning complete. Plan: ${PLAN_NAME}" | tee -a "$LOG_FILE"
+        else
+            echo "$(date -Iseconds) Planning pass did not produce expected plan file: ${PLAN_NAME}. Retrying." | tee -a "$LOG_FILE"
+            sleep 30
+        fi
+        continue
+    fi
+
     STEP=$(cat "$STEP_FILE" 2>/dev/null || echo 1)
     TOTAL=$(cat "$TOTAL_FILE" 2>/dev/null || echo 1)
     PLAN_FILE="${TASK_DIR}/${NAME}.plan-${STEP}.md"

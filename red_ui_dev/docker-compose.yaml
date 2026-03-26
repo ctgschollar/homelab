@@ -1,0 +1,33 @@
+version: "3.8"
+
+networks:
+  traefik-net:
+    external: true
+
+services:
+  red_ui_dev:
+    image: ${REGISTRY:-registry.schollar.dev:5000}/tsolo/red_ui:${VERSION:-latest}
+    command: /start.sh
+    networks:
+      - traefik-net
+    env_file:
+      - .env
+    environment:
+      - SERVER_NAME=${DOMAIN?Variable not set}
+      - SERVER_HOST=https://${DOMAIN?Variable not set}
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-net
+        - traefik.http.routers.red-ui-dev.entrypoints=https
+        - traefik.http.routers.red-ui-dev.rule=Host(`${DOMAIN?Variable not set}`)
+        - traefik.http.routers.red-ui-dev.tls.certresolver=cf
+        - traefik.http.services.red-ui-dev.loadbalancer.server.port=8888
+        - prometheus.blackbox=true
+        - metrics.probe_url=https://${DOMAIN?Variable not set}

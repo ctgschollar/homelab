@@ -10,6 +10,7 @@ EnvironmentFile={{ claude_runner_base_dir }}/env/%i
 ExecStart={{ claude_runner_base_dir }}/run.sh ${REPO_PATH} %i
 Restart=always
 RestartSec=5
+RestartPreventExitStatus=0
 StandardOutput=journal
 StandardError=journal
 

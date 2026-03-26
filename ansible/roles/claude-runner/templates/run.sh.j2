@@ -6,11 +6,18 @@ REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
 TASK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.md"
 STUCK_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.stuck"
+DONE_FILE="{{ claude_runner_base_dir }}/tasks/${NAME}.done"
 LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
 
 while true; do
+    # Halt if all work is complete — exit 0 so systemd does not restart
+    if [[ -f "$DONE_FILE" ]]; then
+        echo "$(date -Iseconds) DONE: all work complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
+        exit 0
+    fi
+
     # Halt if a stuck token exists — requires human intervention to clear
     if [[ -f "$STUCK_FILE" ]]; then
         echo "$(date -Iseconds) STUCK: $(cat "$STUCK_FILE"). Clear with: claude-runner clear-stuck ${NAME}" | tee -a "$LOG_FILE"
@@ -33,4 +40,10 @@ while true; do
     fi
 
     { printf "%b" "$RESUME_PREFIX"; cat "$TASK_FILE"; } | claude --print --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+
+    # Check if Claude wrote a done file during this run
+    if [[ -f "$DONE_FILE" ]]; then
+        echo "$(date -Iseconds) DONE: all work complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
+        exit 0
+    fi
 done

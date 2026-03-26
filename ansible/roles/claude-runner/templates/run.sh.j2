@@ -12,14 +12,11 @@ DONE_FILE="${TASK_DIR}/${NAME}.done"
 STEP_FILE="${TASK_DIR}/${NAME}.step"
 TOTAL_FILE="${TASK_DIR}/${NAME}.total"
 START_SHA_FILE="${TASK_DIR}/${NAME}.start-sha"
+SPEC_REF_FILE="${TASK_DIR}/${NAME}.spec-ref"
+BRANCH_FILE="${TASK_DIR}/${NAME}.branch"
 LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
-
-# Record the starting commit once — used to build the progress log on every run
-if [[ ! -f "$START_SHA_FILE" ]]; then
-    git rev-parse HEAD > "$START_SHA_FILE"
-fi
 
 while true; do
     # Halt if all steps complete — exit 0 prevents systemd restart

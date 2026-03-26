@@ -34,7 +34,7 @@ run.sh loop:
   [.stuck exists] → log + sleep 60 (unchanged)
   [no task file]  → log + sleep 30 (unchanged)
   [no .total]     → PLANNING PASS
-                    → git checkout -b claude-runner/<name>
+                    → git checkout -B claude-runner/<name> (force-create; safe because branch state was wiped by add-instruction reset)
                     → write branch name to tasks/<name>.branch
                     → run Claude: spec + instructions to invoke writing-plans skill
                     → after Claude exits: find expected plan file, copy to tasks/<name>.plan-1.md, write 1 to tasks/<name>.total
@@ -72,7 +72,15 @@ Add GitHub CLI installation after the existing apt task:
     update_cache: yes
 ```
 
-Authentication is performed manually by the operator (`gh auth login`) after deployment.
+Authentication is performed manually by the operator after deployment. Since the repo is on a self-hosted Gitea instance, `gh` must be pointed at that host. **Authentication must be performed as `claude_user`** (the user the systemd service runs as), not as root:
+```
+sudo -u claude gh auth login --hostname <gitea-hostname> --git-protocol https
+```
+Gitea 1.19+ exposes a GitHub-compatible REST API that `gh` can use. The Gitea instance must have API compatibility enabled (it is on by default).
+
+The operator must also add `GH_HOST=<gitea-hostname>` to each runner's env file (`/opt/claude-runner/env/<name>`) so that `gh pr create` targets the correct host. The systemd unit already loads this file via `EnvironmentFile=`, so no service unit changes are needed.
+
+**Git push authentication:** `git push` uses a separate credential mechanism from `gh`. The `claude_user` must have push access configured for the repository — either via SSH key registered in Gitea, or via HTTPS credentials stored in git's credential helper. This is a pre-existing operational requirement; the runner cannot push or create a PR without it.
 
 ---
 
@@ -91,6 +99,8 @@ Authentication is performed manually by the operator (`gh auth login`) after dep
   rm -f "${TASK_DIR}/${name}".plan-*.md
   rm -f "${TASK_DIR}/${name}".step-*.done
   ```
+
+**Spec embedding:** the spec file is read from `${repo_path}/docs/superpowers/specs/${spec_basename}` (absolute path, constructed from the registered `REPO_PATH` and the spec basename stored in `.spec-ref`). Its full contents are appended verbatim to the task file at `add-instruction` time.
 
 **Task file structure** (written by `add-instruction`):
 
@@ -117,7 +127,7 @@ Source: docs/superpowers/specs/<spec-basename>
 
 ---
 
-<full spec contents embedded here>
+<full contents of ${repo_path}/docs/superpowers/specs/${spec_basename} embedded here>
 
 ---
 ```
@@ -141,16 +151,38 @@ PLAN_NAME="${SPEC_REF%-design.md}.md"
 EXPECTED_PLAN="${REPO_PATH}/docs/superpowers/plans/${PLAN_NAME}"
 ```
 
-**Planning pass (when `.total` does not exist):**
+**Loop ordering:** The planning-pass block must be inserted **before** the existing `PLAN_FILE` existence check. The current loop checks `[[ ! -f "$PLAN_FILE" ]]` and sleeps if absent — if the planning pass check came after this, it would never be reached. The correct order in the loop body is:
+
+1. `.done` check
+2. `.stuck` check
+3. task file check
+4. **planning pass** (new — when `.total` absent)
+5. existing step sequencer (STEP/TOTAL/PLAN_FILE reads and prompt)
+
+**`.spec-ref` guard:** At the start of the planning pass, if `$SPEC_REF_FILE` does not exist (e.g. old-style task file written before this feature), log an error and sleep rather than letting `cat` fail:
 
 ```bash
-# Create and record the working branch
-BRANCH="claude-runner/${NAME}"
-git checkout -B "$BRANCH"
-echo "$BRANCH" > "$BRANCH_FILE"
+if [[ ! -f "$SPEC_REF_FILE" ]]; then
+    echo "$(date -Iseconds) No spec-ref file for ${NAME}. Re-run: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
+    sleep 30
+    continue
+fi
+```
 
-# Record start SHA for progress log
-git rev-parse HEAD > "$START_SHA_FILE"
+**Planning pass (when `.total` does not exist):**
+
+The branch creation and start-SHA recording happen only once — before the first planning invocation. They are guarded by the absence of `$BRANCH_FILE` so that retries (if the planning invocation fails to produce the expected plan) do not re-checkout or overwrite the start SHA.
+
+The existing pre-loop `START_SHA_FILE` write (`if [[ ! -f "$START_SHA_FILE" ]]; then ...`) **must be removed** from `run.sh.j2`. The planning pass is now the sole writer of `$START_SHA_FILE`, and it must write it after the branch checkout so the SHA is on the correct branch.
+
+```bash
+# One-time setup: create branch and record start SHA
+if [[ ! -f "$BRANCH_FILE" ]]; then
+    BRANCH="claude-runner/${NAME}"
+    git checkout -B "$BRANCH"
+    echo "$BRANCH" > "$BRANCH_FILE"
+    git rev-parse HEAD > "$START_SHA_FILE"
+fi
 
 # Build planning prompt
 {
@@ -176,9 +208,22 @@ else
 fi
 ```
 
-**PR creation (when all steps done, before writing `.done`):**
+**Spec filename convention:** spec files MUST follow the `YYYY-MM-DD-<name>-design.md` naming convention. The `superpowers:writing-plans` skill saves its output to `docs/superpowers/plans/YYYY-MM-DD-<name>.md` — i.e. the same date and name prefix, without the `-design` suffix. The plan filename derivation (`${SPEC_REF%-design.md}.md`) depends exactly on this convention. `add-instruction` must validate that the selected spec filename ends in `-design.md` and print an error and exit if it does not.
 
+**Single-file plan:** the writing-plans skill produces one plan file per spec. `.total` is therefore hardcoded to `1`. The entire implementation is one step.
+
+**PR creation — replaces the existing "all steps done" exit block:**
+
+The current code (to be replaced):
 ```bash
+echo "$(date -Iseconds) All ${TOTAL} steps complete." | tee -a "$LOG_FILE"
+echo "All ${TOTAL} steps completed." > "$DONE_FILE"
+exit 0
+```
+
+Replacement:
+```bash
+echo "$(date -Iseconds) All ${TOTAL} steps complete." | tee -a "$LOG_FILE"
 BRANCH=$(cat "$BRANCH_FILE")
 git push -u origin "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
 gh pr create \
@@ -206,7 +251,15 @@ rm -f "${TASK_DIR}/${name}.branch"
 
 ### `claude-runner.j2` — `cmd_list`
 
-The `STEP` column remains unchanged. The `INSTRUCTION` column now shows `set` if `tasks/<name>.spec-ref` exists (instead of `tasks/<name>.md`), since the spec-ref file is a better indicator that `add-instruction` has run.
+The `STEP` column remains unchanged. The `INSTRUCTION` column condition changes from:
+```bash
+if [[ -f "${TASK_DIR}/${name}.md" ]]; then
+```
+to:
+```bash
+if [[ -f "${TASK_DIR}/${name}.spec-ref" || -f "${TASK_DIR}/${name}.md" ]]; then
+```
+This preserves backward compatibility with old-style task files that have `.md` but no `.spec-ref`.
 
 ---
 
@@ -215,7 +268,7 @@ The `STEP` column remains unchanged. The `INSTRUCTION` column now shows `set` if
 | File | Change |
 |------|--------|
 | `ansible/roles/claude-runner/tasks/main.yml` | Add `gh` CLI apt repo + install |
-| `ansible/roles/claude-runner/templates/run.sh.j2` | Add planning pass, branch creation, PR creation |
+| `ansible/roles/claude-runner/templates/run.sh.j2` | Add planning pass, branch creation, PR creation; remove pre-loop `START_SHA_FILE` write |
 | `ansible/roles/claude-runner/templates/claude-runner.j2` | Remove plan menu from `add-instruction`; add spec-ref write + state reset; update `cmd_remove`; update `cmd_list` |
 
 ---
@@ -226,4 +279,4 @@ The `STEP` column remains unchanged. The `INSTRUCTION` column now shows `set` if
 - No changes to `defaults/main.yml`
 - No changes to `handlers/main.yml`
 - No changes to `agent/` code
-- `gh` authentication is manual (operator runs `gh auth login` post-deploy)
+- `gh` authentication is manual: operator runs `gh auth login --hostname <gitea-hostname>` and adds `GH_HOST=<gitea-hostname>` to each runner's env file post-deploy

@@ -26,6 +26,7 @@ services:
         - traefik.http.routers.red-ui-dev.entrypoints=https
         - traefik.http.routers.red-ui-dev.rule=Host(`${DOMAIN?Variable not set}`)
         - traefik.http.routers.red-ui-dev.tls.certresolver=cf
+        - traefik.http.routers.red-ui-dev.service=red-ui-dev
         - traefik.http.services.red-ui-dev.loadbalancer.server.port=8888
         - prometheus.blackbox=true
         - metrics.probe_url=https://${DOMAIN?Variable not set}

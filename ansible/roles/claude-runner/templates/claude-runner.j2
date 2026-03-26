@@ -117,41 +117,19 @@ cmd_add_instruction() {
                 echo "Error: invalid selection" >&2; exit 1
             fi
             spec_file="${spec_files[$((spec_idx-1))]}"
-            spec_rel="docs/superpowers/specs/$(basename "$spec_file")"
+            local spec_basename
+            spec_basename="$(basename "$spec_file")"
+            if [[ "$spec_basename" != *-design.md ]]; then
+                echo "Error: spec file must end in '-design.md' (got: ${spec_basename})" >&2
+                echo "Spec files must follow the naming convention: YYYY-MM-DD-<name>-design.md" >&2
+                exit 1
+            fi
+            spec_rel="docs/superpowers/specs/${spec_basename}"
         else
             echo "Warning: no spec files found in ${spec_dir} — skipping spec"
         fi
     else
         echo "Warning: ${spec_dir} not found — skipping spec selection"
-    fi
-
-    # --- Plan selection ---
-    local selected_plans=()
-    local plan_dir="${repo_path}/docs/superpowers/plans"
-    if [[ -d "$plan_dir" ]]; then
-        mapfile -t plan_files < <(find "$plan_dir" -maxdepth 1 -name "*.md" | sort)
-        if [[ ${#plan_files[@]} -gt 0 ]]; then
-            echo ""
-            echo "Select plans (comma-separated numbers, in execution order):"
-            local i=1
-            for f in "${plan_files[@]}"; do
-                printf "  %d) %s\n" "$i" "$(basename "$f")"
-                ((i++))
-            done
-            read -rp "> " plan_selection
-            IFS=',' read -ra plan_indices <<< "$plan_selection"
-            for idx in "${plan_indices[@]}"; do
-                idx="${idx// /}"
-                if ! [[ "$idx" =~ ^[0-9]+$ ]] || (( idx < 1 || idx > ${#plan_files[@]} )); then
-                    echo "Error: invalid plan selection: $idx" >&2; exit 1
-                fi
-                selected_plans+=("${plan_files[$((idx-1))]}")
-            done
-        else
-            echo "Warning: no plan files found in ${plan_dir} — skipping plans"
-        fi
-    else
-        echo "Warning: ${plan_dir} not found — skipping plan selection"
     fi
 
     # --- Python? ---
@@ -182,11 +160,15 @@ cmd_add_instruction() {
         fi
     fi
 
-    # --- Write task file (rules + spec; plans are written as separate step files) ---
+    # --- Reset planning state ---
+    rm -f "${TASK_DIR}/${name}.total"
+    rm -f "${TASK_DIR}/${name}.step"
+    rm -f "${TASK_DIR}/${name}.start-sha"
+    rm -f "${TASK_DIR}/${name}.branch"
+    rm -f "${TASK_DIR}/${name}".plan-*.md
+    rm -f "${TASK_DIR}/${name}".step-*.done
 
-    # Header + rules (unquoted heredoc: Jinja2 {{ }} resolved at deploy time,
-    # bash $vars resolved at runtime; backticks escaped with \` to avoid
-    # command substitution)
+    # --- Write task file (rules + spec) ---
     cat > "$task_file" <<HEADER
 # Task: ${name}
 
@@ -205,7 +187,6 @@ cmd_add_instruction() {
   Do not attempt steps beyond the one shown — stop after writing the done file.
 HEADER
 
-    # Python rule (single-quoted heredoc: backticks safe, no variable expansion needed)
     if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then
         cat >> "$task_file" <<'PYTHON'
 - Always use `hatch run` for all Python commands:
@@ -214,7 +195,6 @@ HEADER
 PYTHON
     fi
 
-    # Spec section — appended to the rules file, visible on every step
     if [[ -n "$spec_file" && -f "$spec_file" ]]; then
         {
             printf '\n\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
@@ -225,27 +205,13 @@ PYTHON
 
     chmod 644 "$task_file"
 
-    # Write each plan as an individual step file
-    local total_steps=${#selected_plans[@]}
-    if [[ $total_steps -gt 0 ]]; then
-        local step=1
-        for plan_file in "${selected_plans[@]}"; do
-            local step_file="${TASK_DIR}/${name}.plan-${step}.md"
-            cp "$plan_file" "$step_file"
-            chmod 644 "$step_file"
-            ((step++))
-        done
-        echo "$total_steps" > "${TASK_DIR}/${name}.total"
-    else
-        echo "1" > "${TASK_DIR}/${name}.total"
+    # --- Write spec-ref ---
+    if [[ -n "$spec_file" ]]; then
+        echo "$(basename "$spec_file")" > "${TASK_DIR}/${name}.spec-ref"
+        chmod 644 "${TASK_DIR}/${name}.spec-ref"
     fi
 
-    # Initialise step counter (reset to 1 on re-instruction)
-    echo "1" > "${TASK_DIR}/${name}.step"
-    # Clear start-sha so the git log resets from this point on redeploy
-    rm -f "${TASK_DIR}/${name}.start-sha"
-
-    # Update env file with selected account
+    # --- Update env file with selected account ---
     if [[ -n "$claude_config_dir" ]]; then
         sed -i '/^CLAUDE_CONFIG_DIR=/d' "$env_file"
         echo "CLAUDE_CONFIG_DIR=${claude_config_dir}" >> "$env_file"

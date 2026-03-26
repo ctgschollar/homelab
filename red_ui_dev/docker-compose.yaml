@@ -6,7 +6,7 @@ networks:
 
 services:
   red_ui_dev:
-    image: ${REGISTRY:-registry.schollar.dev:5000}/tsolo/red_ui:${VERSION:-latest}
+    image: ${REGISTRY:-gitea.schollar.dev}/chris/red_ui:${VERSION:-latest}
     command: /start.sh
     networks:
       - traefik-net

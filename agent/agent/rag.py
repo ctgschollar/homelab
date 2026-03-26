@@ -137,7 +137,7 @@ class IncidentRAG:
         target_dsn = re.sub(r"/[^/]*$", f"/{self._config.database}", self._config.dsn or "")
 
         async with await psycopg.AsyncConnection.connect(target_dsn) as conn:
-            async with await conn.cursor() as cur:
+            async with conn.cursor() as cur:
                 await cur.execute(
                     _UPSERT_SQL,
                     (
@@ -166,7 +166,7 @@ class IncidentRAG:
         target_dsn = re.sub(r"/[^/]*$", f"/{self._config.database}", self._config.dsn or "")
 
         async with await psycopg.AsyncConnection.connect(target_dsn) as conn:
-            async with await conn.cursor() as cur:
+            async with conn.cursor() as cur:
                 await cur.execute(_SEARCH_SQL, (embedding, embedding, top_k))
                 rows = await cur.fetchall()
 
@@ -194,7 +194,7 @@ class IncidentRAG:
         """Return the total number of stored incidents."""
         target_dsn = re.sub(r"/[^/]*$", f"/{self._config.database}", self._config.dsn or "")
         async with await psycopg.AsyncConnection.connect(target_dsn) as conn:
-            async with await conn.cursor() as cur:
+            async with conn.cursor() as cur:
                 await cur.execute(_COUNT_SQL)
                 row = await cur.fetchone()
         return int(row[0]) if row else 0

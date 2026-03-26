@@ -23,7 +23,7 @@ services:
       labels:
         - traefik.enable=true
         - traefik.docker.network=traefik-net
-        - traefik.http.routers.red-ui-dev.entrypoints=https
+        - traefik.http.routers.red-ui-dev.entrypoints=websecure
         - traefik.http.routers.red-ui-dev.rule=Host(`${DOMAIN?Variable not set}`)
         - traefik.http.routers.red-ui-dev.tls.certresolver=cf
         - traefik.http.routers.red-ui-dev.service=red-ui-dev

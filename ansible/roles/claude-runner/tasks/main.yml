@@ -57,8 +57,8 @@
   file:
     path: "{{ claude_runner_base_dir }}/tasks"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
 
 - name: Create accounts.conf (skip if already populated)

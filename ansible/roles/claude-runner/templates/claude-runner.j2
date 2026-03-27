@@ -21,6 +21,7 @@ Commands:
   add-instruction <name>               Interactively set the task for a runner
   list                                 Show all runners and their service status
   status <name>                        Tail the journal for a runner
+  logs <name>                          Tail the log file with human-readable output
   list-stuck                           Show all runners with a stuck token
   clear-stuck <name>                   Remove the stuck token for a runner
   list-done                            Show all runners that have signalled completion
@@ -398,12 +399,52 @@ cmd_status() {
     exec journalctl -u "claude-runner@${name}.service" -f --output short-iso
 }
 
+cmd_logs() {
+    local name="${1:?logs requires a name}"
+    local log_file="{{ claude_runner_base_dir }}/logs/${name}.log"
+
+    if [[ ! -f "$log_file" ]]; then
+        echo "No log file found for '${name}': ${log_file}" >&2
+        exit 1
+    fi
+
+    tail -f "$log_file" | while IFS= read -r line; do
+        local type
+        if type=$(printf '%s' "$line" | jq -re '.type' 2>/dev/null); then
+            case "$type" in
+                assistant)
+                    printf '%s' "$line" | jq -r '
+                        .message.content[]? |
+                        if .type == "text" then .text
+                        elif .type == "tool_use" then "\n[tool: \(.name)] \(.input | tostring | .[0:200])"
+                        else empty
+                        end
+                    ' 2>/dev/null || true
+                    ;;
+                tool_result)
+                    printf '%s' "$line" | jq -r '
+                        "[result] \(if .is_error then "ERROR " else "" end)\(.content | if type == "string" then . else tostring end | .[0:200])"
+                    ' 2>/dev/null || true
+                    ;;
+                result)
+                    printf '%s' "$line" | jq -r '
+                        "[session] turns=\(.num_turns) cost=$\(.cost_usd // 0)"
+                    ' 2>/dev/null || true
+                    ;;
+            esac
+        else
+            printf '%s\n' "$line"
+        fi
+    done
+}
+
 case "${1:-}" in
     add)             shift; cmd_add "$@" ;;
     remove)          shift; cmd_remove "$@" ;;
     add-instruction) shift; cmd_add_instruction "$@" ;;
     list)            cmd_list ;;
     status)          shift; cmd_status "$@" ;;
+    logs)            shift; cmd_logs "$@" ;;
     list-stuck)      cmd_list_stuck ;;
     clear-stuck)     shift; cmd_clear_stuck "$@" ;;
     list-done)       cmd_list_done ;;

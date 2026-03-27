@@ -1,6 +1,10 @@
 ---
 # ansible/roles/tools/vars/main.yml
 tool_definitions:
+  jq:
+    apt: [jq]
+    deps: []
+
   gnupg:
     apt: [gnupg]
     deps: []

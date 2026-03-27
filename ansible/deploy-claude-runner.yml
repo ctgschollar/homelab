@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    required_tools: [gh]
+    required_tools: [gh, jq]
 
   pre_tasks:
     - name: Install required tools

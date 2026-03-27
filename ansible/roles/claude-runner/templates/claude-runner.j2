@@ -429,7 +429,7 @@ cmd_logs() {
                     ;;
                 result)
                     printf '%s' "$line" | jq -r '
-                        "[session] turns=\(.num_turns)"
+                        "[session] turns=\(.num_turns) cost=$\(.cost_usd // 0)"
                     ' 2>/dev/null || true
                     ;;
             esac

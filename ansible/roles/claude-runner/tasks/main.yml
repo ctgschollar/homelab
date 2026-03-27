@@ -24,29 +24,6 @@
     state: present
     update_cache: yes
 
-- name: Install gnupg (required by apt_repository module)
-  apt:
-    name: gnupg
-    state: present
-
-- name: Add GitHub CLI apt signing key
-  get_url:
-    url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
-    dest: /usr/share/keyrings/githubcli-archive-keyring.gpg
-    mode: '0644'
-
-- name: Add GitHub CLI apt repository
-  apt_repository:
-    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
-    filename: github-cli
-    state: present
-
-- name: Install gh CLI
-  apt:
-    name: gh
-    state: present
-    update_cache: yes
-
 - name: Install Claude Code globally
   npm:
     name: "@anthropic-ai/claude-code"

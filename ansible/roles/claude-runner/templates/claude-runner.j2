@@ -79,6 +79,8 @@ cmd_remove() {
     rm -f "${TASK_DIR}/${name}.step"
     rm -f "${TASK_DIR}/${name}.total"
     rm -f "${TASK_DIR}/${name}.start-sha"
+    rm -f "${TASK_DIR}/${name}.spec-ref"
+    rm -f "${TASK_DIR}/${name}.branch"
     rm -f "${TASK_DIR}/${name}".plan-*.md
     rm -f "${TASK_DIR}/${name}".step-*.done
 
@@ -382,7 +384,7 @@ cmd_list() {
             step_col="${step}/${total}"
         fi
         local instruction
-        if [[ -f "${TASK_DIR}/${name}.md" ]]; then
+        if [[ -f "${TASK_DIR}/${name}.spec-ref" || -f "${TASK_DIR}/${name}.md" ]]; then
             instruction="set"
         else
             instruction="none"

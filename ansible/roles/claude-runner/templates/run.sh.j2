@@ -67,7 +67,7 @@ while true; do
             printf '3. The writing-plans skill will save the plan to docs/superpowers/plans/ — let it use its default naming.\n'
             printf '4. Commit the plan file with: git add docs/superpowers/plans/ && git commit -m "plan: %s"\n' "$NAME"
             printf '5. Stop. Do not implement anything.\n'
-        } | claude --print --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+        } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 
         if [[ -f "$EXPECTED_PLAN" ]]; then
             cp "$EXPECTED_PLAN" "${TASK_DIR}/${NAME}.plan-1.md"
@@ -106,7 +106,7 @@ while true; do
         printf '%s\n' "$GIT_LOG"
         printf '\n\n## Current step: %d of %d\n\n' "$STEP" "$TOTAL"
         cat "$PLAN_FILE"
-    } | claude --print --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+    } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 
     # Decision tree
     if [[ -f "$STUCK_FILE" ]]; then

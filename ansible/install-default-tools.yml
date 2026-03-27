@@ -1,0 +1,15 @@
+---
+# ansible/install-default-tools.yml
+- name: Install default tools
+  hosts: all
+  become: yes
+
+  vars:
+    required_tools: [git, curl, wget, vim, hatch]
+
+  pre_tasks:
+    - name: Install required tools
+      import_role:
+        name: tools
+
+  tasks: []

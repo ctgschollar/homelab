@@ -18,6 +18,24 @@ LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
 
 cd "$REPO_PATH"
 
+# Sleep until the rate limit resets if the last Claude invocation was rate-limited.
+# Reads resetsAt from the most recent rate_limit_event in the log.
+check_rate_limit() {
+    local resets_at
+    resets_at=$(tail -n 100 "$LOG_FILE" | grep -o '{"type":"rate_limit_event"[^}]*}' | tail -1 | jq -re '.rate_limit_info.resetsAt' 2>/dev/null || true)
+    if [[ -n "$resets_at" ]]; then
+        local now wait
+        now=$(date +%s)
+        wait=$(( resets_at - now + 60 ))
+        if [[ $wait -gt 0 ]]; then
+            echo "$(date -Iseconds) Rate limited — sleeping ${wait}s until reset" | tee -a "$LOG_FILE"
+            sleep "$wait"
+        fi
+        return 0
+    fi
+    return 1
+}
+
 while true; do
     # Halt if all steps complete — exit 0 prevents systemd restart
     if [[ -f "$DONE_FILE" ]]; then
@@ -69,6 +87,8 @@ while true; do
             printf '5. Stop. Do not implement anything.\n'
         } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 
+        if check_rate_limit; then continue; fi
+
         if [[ -f "$EXPECTED_PLAN" ]]; then
             cp "$EXPECTED_PLAN" "${TASK_DIR}/${NAME}.plan-1.md"
             echo "1" > "$TOTAL_FILE"
@@ -107,6 +127,8 @@ while true; do
         printf '\n\n## Current step: %d of %d\n\n' "$STEP" "$TOTAL"
         cat "$PLAN_FILE"
     } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+
+    if check_rate_limit; then continue; fi
 
     # Decision tree
     if [[ -f "$STUCK_FILE" ]]; then

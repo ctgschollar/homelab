@@ -1,0 +1,6 @@
+---
+# ansible/roles/tools/meta/main.yml
+galaxy_info:
+  role_name: tools
+  author: homelab
+  description: Install system tools with dependency resolution

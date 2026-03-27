@@ -1,0 +1,42 @@
+---
+# ansible/roles/tools/vars/main.yml
+tool_definitions:
+  gnupg:
+    apt: [gnupg]
+    deps: []
+
+  git:
+    apt: [git]
+    deps: []
+
+  curl:
+    apt: [curl]
+    deps: []
+
+  wget:
+    apt: [wget]
+    deps: []
+
+  vim:
+    apt: [vim]
+    deps: []
+
+  python3-pip:
+    apt: [python3-pip]
+    deps: []
+
+  pipx:
+    apt: [pipx]
+    deps: [python3-pip]
+
+  hatch:
+    pipx: hatch
+    deps: [pipx]
+
+  gh:
+    deps: [gnupg]
+    tasks: install-gh.yml
+
+  cloudflared:
+    deps: [gnupg]
+    tasks: install-cloudflared.yml

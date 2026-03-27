@@ -2,5 +2,14 @@
 - name: Deploy claude-runner service manager
   hosts: claude
   become: true
+
+  vars:
+    required_tools: [gh]
+
+  pre_tasks:
+    - name: Install required tools
+      import_role:
+        name: tools
+
   roles:
     - claude-runner

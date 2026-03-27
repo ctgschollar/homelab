@@ -1,0 +1,6 @@
+---
+# ansible/roles/tools/tasks/install-cloudflared.yml
+# Placeholder — content to be added when cloudflared is needed
+- name: cloudflared install not yet implemented
+  fail:
+    msg: "install-cloudflared.yml is a placeholder. Implement before using cloudflared in required_tools."

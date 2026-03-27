@@ -1,0 +1,20 @@
+---
+# ansible/roles/tools/tasks/install-gh.yml
+
+- name: Add GitHub CLI apt signing key
+  get_url:
+    url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    dest: /usr/share/keyrings/githubcli-archive-keyring.gpg
+    mode: '0644'
+
+- name: Add GitHub CLI apt repository
+  apt_repository:
+    repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+    filename: github-cli
+    state: present
+
+- name: Install gh CLI
+  apt:
+    name: gh
+    state: present
+    update_cache: yes

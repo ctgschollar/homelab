@@ -1,0 +1,32 @@
+---
+# ansible/roles/tools/tasks/main.yml
+
+- name: Resolve tool dependencies
+  set_fact:
+    resolved_tools: "{{ required_tools | resolve_tool_deps(tool_definitions) }}"
+
+- name: Collect apt tools
+  set_fact:
+    _apt_tools: "{{ resolved_tools | tools_with_key(tool_definitions, 'apt') }}"
+
+- name: Install apt packages
+  apt:
+    name: "{{ _apt_tools | map('extract', tool_definitions) | map(attribute='apt') | flatten | list }}"
+    state: present
+    update_cache: yes
+  when: _apt_tools | length > 0
+
+- name: Install pipx packages
+  community.general.pipx:
+    name: "{{ tool_definitions[item].pipx }}"
+    state: present
+  environment:
+    PIPX_HOME: /opt/pipx
+    PIPX_BIN_DIR: /usr/local/bin
+  loop: "{{ resolved_tools | tools_with_key(tool_definitions, 'pipx') }}"
+
+- name: Run per-tool task files
+  include_tasks: "{{ tool_definitions[tool_name].tasks }}"
+  loop: "{{ resolved_tools | tools_with_key(tool_definitions, 'tasks') }}"
+  loop_control:
+    loop_var: tool_name

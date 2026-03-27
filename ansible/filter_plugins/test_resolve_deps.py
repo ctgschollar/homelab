@@ -54,6 +54,12 @@ class TestResolveToolDeps:
         with pytest.raises(AnsibleFilterError, match="Unknown tool"):
             resolve(["nonexistent"])
 
+    def test_undefined_dep_raises(self):
+        broken = {"mytool": {"deps": ["ghost"], "apt": ["mytool"]}}
+        from resolve_deps import resolve_tool_deps
+        with pytest.raises(AnsibleFilterError, match="Unknown tool"):
+            resolve_tool_deps(["mytool"], broken)
+
     def test_cycle_raises(self):
         cyclic = {
             "a": {"deps": ["b"], "apt": ["a"]},

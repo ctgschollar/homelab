@@ -1,0 +1,10 @@
+#!/bin/bash
+# notify_user — write a notification message to the instance log
+# Usage: notify_user <message>
+# Env: NAME (instance name)
+set -euo pipefail
+
+MESSAGE="$*"
+LOG_FILE="/opt/claude-runner/logs/${NAME}.log"
+
+echo "$(date -Iseconds) NOTIFY: ${MESSAGE}" | tee -a "$LOG_FILE"

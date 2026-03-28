@@ -1,0 +1,34 @@
+#!/bin/bash
+# chain_skill — prepend a skill entry to the front of the queue
+# Usage: chain_skill <skill> [args...]
+# Env: NAME (instance name)
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "chain_skill: requires <skill> [args...]" >&2
+    exit 1
+fi
+
+SKILL="$1"
+shift
+SKILL_ARGS="$*"
+
+QUEUE_FILE="/opt/claude-runner/tasks/${NAME}/queue"
+
+if [[ -n "$SKILL_ARGS" ]]; then
+    NEW_ENTRY="${SKILL} ${SKILL_ARGS}"
+else
+    NEW_ENTRY="${SKILL}"
+fi
+
+# Prepend to queue (write new entry then existing content)
+if [[ -f "$QUEUE_FILE" ]]; then
+    TMP=$(mktemp)
+    echo "$NEW_ENTRY" > "$TMP"
+    cat "$QUEUE_FILE" >> "$TMP"
+    mv "$TMP" "$QUEUE_FILE"
+else
+    echo "$NEW_ENTRY" > "$QUEUE_FILE"
+fi
+
+echo "Chained skill '${SKILL}' to front of queue for ${NAME}"

@@ -37,6 +37,10 @@ tool_definitions:
     pipx: hatch
     deps: [pipx]
 
+  tea:
+    deps: [curl]
+    tasks: install-tea.yml
+
   gh:
     deps: [gnupg]
     tasks: install-gh.yml

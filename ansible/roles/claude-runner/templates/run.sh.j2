@@ -142,11 +142,11 @@ while true; do
             echo "$(date -Iseconds) All ${TOTAL} steps complete." | tee -a "$LOG_FILE"
             BRANCH=$(cat "$BRANCH_FILE")
             git push -u origin "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
-            gh pr create \
+            tea pr create \
                 --title "feat: ${NAME}" \
                 --base main \
                 --head "$BRANCH" \
-                --body "Automated implementation of spec: $(cat "$SPEC_REF_FILE")" \
+                --description "Automated implementation of spec: $(cat "$SPEC_REF_FILE")" \
                 2>&1 | tee -a "$LOG_FILE"
             echo "All ${TOTAL} steps completed." > "$DONE_FILE"
             exit 0

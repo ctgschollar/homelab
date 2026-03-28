@@ -1,0 +1,20 @@
+[project]
+name = "homelab-ansible"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.hatch.envs.test]
+type = "virtual"
+python = "3.12"
+path = ".venv"
+dependencies = [
+    "pytest>=8.0",
+    "ansible-core>=2.15",
+]
+
+[tool.hatch.envs.test.scripts]
+run = "pytest {args}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

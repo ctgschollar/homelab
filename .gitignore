@@ -35,3 +35,4 @@ agent/action.log
 __pycache__/
 *.py[cod]
 *.pyo
+ansible/.venv/

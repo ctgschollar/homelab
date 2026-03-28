@@ -1,0 +1,19 @@
+---
+# ansible/roles/tools/tasks/install-tea.yml
+
+- name: Set tea architecture
+  set_fact:
+    _tea_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}"
+
+- name: Get latest tea release version
+  uri:
+    url: https://gitea.com/api/v1/repos/gitea/tea/releases/latest
+    return_content: yes
+  register: _tea_release
+
+- name: Download tea binary
+  get_url:
+    url: "https://gitea.com/gitea/tea/releases/download/{{ _tea_release.json.tag_name }}/tea-{{ _tea_release.json.tag_name | regex_replace('^v', '') }}-linux-{{ _tea_arch }}"
+    dest: /usr/local/bin/tea
+    mode: '0755'
+    force: yes

@@ -1,25 +1,27 @@
 #!/bin/bash
 # Managed by Ansible — do not edit directly.
 # Source: ansible/roles/claude-runner/templates/run.sh.j2
+set -uo pipefail
 
 REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
 
-TASK_DIR="{{ claude_runner_base_dir }}/tasks"
-TASK_FILE="${TASK_DIR}/${NAME}.md"
-STUCK_FILE="${TASK_DIR}/${NAME}.stuck"
-DONE_FILE="${TASK_DIR}/${NAME}.done"
-STEP_FILE="${TASK_DIR}/${NAME}.step"
-TOTAL_FILE="${TASK_DIR}/${NAME}.total"
-START_SHA_FILE="${TASK_DIR}/${NAME}.start-sha"
-SPEC_REF_FILE="${TASK_DIR}/${NAME}.spec-ref"
-BRANCH_FILE="${TASK_DIR}/${NAME}.branch"
-LOG_FILE="{{ claude_runner_base_dir }}/logs/${NAME}.log"
+BASE_DIR="{{ claude_runner_base_dir }}"
+TASK_DIR="${BASE_DIR}/tasks/${NAME}"
+LOG_FILE="${BASE_DIR}/logs/${NAME}.log"
+QUEUE_FILE="${TASK_DIR}/queue"
+RESULT_FILE="${TASK_DIR}/result.json"
+STEP_FILE="${TASK_DIR}/step"
+TOTAL_FILE="${TASK_DIR}/total"
+BRANCH_FILE="${TASK_DIR}/branch"
+STUCK_FILE="${TASK_DIR}/stuck"
+DONE_FILE="${TASK_DIR}/done"
+SKILLS_CONF="${BASE_DIR}/skills.conf"
 
+mkdir -p "$TASK_DIR"
 cd "$REPO_PATH"
 
-# Sleep until the rate limit resets if the last Claude invocation was rate-limited.
-# Reads resetsAt from the most recent rate_limit_event in the log.
+# Sleep until rate limit resets if the last Claude invocation was rate-limited.
 check_rate_limit() {
     local resets_at
     resets_at=$(tail -n 100 "$LOG_FILE" | grep -o '{"type":"rate_limit_event"[^}]*}' | tail -1 | jq -re '.rate_limit_info.resetsAt' 2>/dev/null || true)
@@ -36,10 +38,50 @@ check_rate_limit() {
     return 1
 }
 
+# Read a lifecycle hook value from skills.conf.
+# Usage: read_hook <skill> <hook_key>
+# Prints the hook string (empty if not found).
+read_hook() {
+    local skill="$1"
+    local hook_key="$2"
+    [[ -f "$SKILLS_CONF" ]] || return 0
+    awk -v section="[${skill}]" -v key="${hook_key}" '
+        /^\[/ { in_section = ($0 == section) }
+        in_section && /^[^#[:space:]]/ {
+            n = index($0, "=")
+            if (n > 0 && substr($0, 1, n-1) == key) {
+                print substr($0, n+1)
+                exit
+            }
+        }
+    ' "$SKILLS_CONF"
+}
+
+# Dispatch a lifecycle hook string.
+# Variables in the hook string are expanded from current env before execution.
+# The first word is the action script name; remaining words are its arguments.
+dispatch_hook() {
+    local hook_str="$1"
+    # Use eval to expand $VAR references within the hook string
+    # then split into action + args via set --
+    eval "set -- $hook_str" 2>/dev/null || {
+        echo "$(date -Iseconds) Hook parse error: ${hook_str}" | tee -a "$LOG_FILE"
+        return 1
+    }
+    local action="$1"; shift
+    local action_script="${BASE_DIR}/actions/${action}"
+    if [[ ! -x "$action_script" ]]; then
+        echo "$(date -Iseconds) Unknown action: ${action}" | tee -a "$LOG_FILE"
+        return 1
+    fi
+    echo "$(date -Iseconds) Dispatching: ${action} $*" | tee -a "$LOG_FILE"
+    "$action_script" "$@" 2>&1 | tee -a "$LOG_FILE"
+}
+
 while true; do
-    # Halt if all steps complete — exit 0 prevents systemd restart
+    # Halt if fully done — exit 0 prevents systemd restart
     if [[ -f "$DONE_FILE" ]]; then
-        echo "$(date -Iseconds) DONE: all work complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
+        echo "$(date -Iseconds) DONE: queue complete. Clear with: claude-runner clear-done ${NAME}" | tee -a "$LOG_FILE"
         exit 0
     fi
 
@@ -50,111 +92,112 @@ while true; do
         continue
     fi
 
-    if [[ ! -f "$TASK_FILE" ]]; then
-        echo "$(date -Iseconds) No task file found. Use: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
-        sleep 30
-        continue
+    # Check queue
+    if [[ ! -f "$QUEUE_FILE" ]] || ! grep -q '[^[:space:]]' "$QUEUE_FILE" 2>/dev/null; then
+        echo "$(date -Iseconds) Queue is empty. Marking done." | tee -a "$LOG_FILE"
+        echo "All queued skills complete." > "$DONE_FILE"
+        exit 0
     fi
 
-    # Planning pass: generate plan if .total does not exist yet
-    if [[ ! -f "$TOTAL_FILE" ]]; then
-        if [[ ! -f "$SPEC_REF_FILE" ]]; then
-            echo "$(date -Iseconds) No spec-ref file for ${NAME}. Re-run: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
-            sleep 30
-            continue
-        fi
-
-        SPEC_REF=$(cat "$SPEC_REF_FILE")
-        PLAN_NAME="${SPEC_REF%-design.md}.md"
-        EXPECTED_PLAN="${REPO_PATH}/docs/superpowers/plans/${PLAN_NAME}"
-
-        # One-time setup: create branch and record start SHA
-        if [[ ! -f "$BRANCH_FILE" ]]; then
-            BRANCH="claude-runner/${NAME}"
-            git checkout -B "$BRANCH"
-            echo "$BRANCH" > "$BRANCH_FILE"
-            git rev-parse HEAD > "$START_SHA_FILE"
-        fi
-
-        {
-            cat "$TASK_FILE"
-            printf '\n\n## Your job — PLANNING PHASE\n\n'
-            printf 'You are in the planning phase. Do not write any implementation code yet.\n\n'
-            printf '1. Read the spec above carefully.\n'
-            printf '2. Invoke the `superpowers:writing-plans` skill to create an implementation plan.\n'
-            printf '3. The writing-plans skill will save the plan to docs/superpowers/plans/ — let it use its default naming.\n'
-            printf '4. Commit the plan file with: git add docs/superpowers/plans/ && git commit -m "plan: %s"\n' "$NAME"
-            printf '5. Stop. Do not implement anything.\n'
-        } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
-
-        if check_rate_limit; then continue; fi
-
-        if [[ -f "$EXPECTED_PLAN" ]]; then
-            cp "$EXPECTED_PLAN" "${TASK_DIR}/${NAME}.plan-1.md"
-            echo "1" > "$TOTAL_FILE"
-            echo "1" > "$STEP_FILE"
-            echo "$(date -Iseconds) Planning complete. Plan: ${PLAN_NAME}" | tee -a "$LOG_FILE"
-        else
-            echo "$(date -Iseconds) Planning pass did not produce expected plan file: ${PLAN_NAME}. Retrying." | tee -a "$LOG_FILE"
-            sleep 30
-        fi
-        continue
+    # Read top of queue: format is "skill [arg1 arg2 ...]"
+    CURRENT_LINE=$(head -1 "$QUEUE_FILE")
+    SKILL="${CURRENT_LINE%% *}"
+    if [[ "$CURRENT_LINE" == *" "* ]]; then
+        SKILL_ARGS="${CURRENT_LINE#* }"
+    else
+        SKILL_ARGS=""
     fi
 
+    # Read step/total for this skill invocation
     STEP=$(cat "$STEP_FILE" 2>/dev/null || echo 1)
     TOTAL=$(cat "$TOTAL_FILE" 2>/dev/null || echo 1)
-    PLAN_FILE="${TASK_DIR}/${NAME}.plan-${STEP}.md"
-    STEP_DONE_FILE="${TASK_DIR}/${NAME}.step-${STEP}.done"
 
-    if [[ ! -f "$PLAN_FILE" ]]; then
-        echo "$(date -Iseconds) No plan file for step ${STEP}. Use: claude-runner add-instruction ${NAME}" | tee -a "$LOG_FILE"
-        sleep 30
-        continue
+    # Generate branch name if not set
+    if [[ ! -f "$BRANCH_FILE" ]]; then
+        echo "claude-runner/${NAME}" > "$BRANCH_FILE"
     fi
+    BRANCH=$(cat "$BRANCH_FILE")
 
-    # Build progress context from git log since task started
-    START_SHA=$(cat "$START_SHA_FILE")
-    GIT_LOG=$(git log --oneline "${START_SHA}..HEAD" 2>/dev/null)
-    if [[ -z "$GIT_LOG" ]]; then
-        GIT_LOG="(no commits yet)"
-    fi
+    # Export SKILL_ARGS key=value pairs as uppercase env vars for hook dispatch
+    while IFS='=' read -r k v; do
+        [[ -z "$k" ]] && continue
+        local_k=$(echo "$k" | tr '[:lower:]' '[:upper:]')
+        export "${local_k}=${v}"
+    done < <(echo "$SKILL_ARGS" | tr ' ' '\n' | grep '=')
+    export STATUS="" OUTCOME="" MESSAGE="" STEP TOTAL NAME REPO_PATH
 
-    # Build the prompt and pipe to claude
-    {
-        cat "$TASK_FILE"
-        printf '\n\n## Progress so far\n\n'
-        printf '%s\n' "$GIT_LOG"
-        printf '\n\n## Current step: %d of %d\n\n' "$STEP" "$TOTAL"
-        cat "$PLAN_FILE"
-    } | claude --print --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
+    # Remove stale result.json from previous invocation
+    rm -f "$RESULT_FILE"
+
+    # Invoke Claude with the skill
+    echo "$(date -Iseconds) Running /${SKILL} step=${STEP}/${TOTAL} name=${NAME}" | tee -a "$LOG_FILE"
+    claude --print "/${SKILL} ${SKILL_ARGS} step=${STEP} total=${TOTAL} branch=${BRANCH} name=${NAME}" \
+        --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 
     if check_rate_limit; then continue; fi
 
-    # Decision tree
-    if [[ -f "$STUCK_FILE" ]]; then
-        echo "$(date -Iseconds) STUCK during step ${STEP}/${TOTAL}" | tee -a "$LOG_FILE"
+    # Read result.json
+    if [[ ! -f "$RESULT_FILE" ]]; then
+        echo "$(date -Iseconds) No result.json written by skill. Retrying in 30s." | tee -a "$LOG_FILE"
+        sleep 30
         continue
     fi
 
-    if [[ -f "$STEP_DONE_FILE" ]]; then
-        echo "$(date -Iseconds) Step ${STEP}/${TOTAL} complete: $(cat "$STEP_DONE_FILE")" | tee -a "$LOG_FILE"
-        if [[ "$STEP" -ge "$TOTAL" ]]; then
-            echo "$(date -Iseconds) All ${TOTAL} steps complete." | tee -a "$LOG_FILE"
-            BRANCH=$(cat "$BRANCH_FILE")
-            git push -u origin "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
-            tea pr create \
-                --title "feat: ${NAME}" \
-                --base main \
-                --head "$BRANCH" \
-                --description "Automated implementation of spec: $(cat "$SPEC_REF_FILE")" \
-                2>&1 | tee -a "$LOG_FILE"
-            echo "All ${TOTAL} steps completed." > "$DONE_FILE"
-            exit 0
-        else
-            echo $((STEP + 1)) > "$STEP_FILE"
-        fi
-    else
-        echo "$(date -Iseconds) Step ${STEP}/${TOTAL} did not complete (context reset?) — retrying" | tee -a "$LOG_FILE"
-        sleep 5
+    STATUS=$(jq -re '.status' "$RESULT_FILE" 2>/dev/null || echo "")
+    OUTCOME=$(jq -re '.outcome' "$RESULT_FILE" 2>/dev/null || echo "")
+    MESSAGE=$(jq -re '.message' "$RESULT_FILE" 2>/dev/null || echo "")
+    export STATUS OUTCOME MESSAGE
+
+    if [[ "$STATUS" == "stuck" ]]; then
+        echo "$(date -Iseconds) STUCK at step ${STEP}/${TOTAL}: ${MESSAGE}" | tee -a "$LOG_FILE"
+        echo "$MESSAGE" > "$STUCK_FILE"
+        HOOK=$(read_hook "$SKILL" "on_stuck")
+        [[ -n "$HOOK" ]] && dispatch_hook "$HOOK"
+        continue
     fi
+
+    if [[ "$STATUS" == "done" ]]; then
+        echo "$(date -Iseconds) Step ${STEP}/${TOTAL} done: ${MESSAGE}" | tee -a "$LOG_FILE"
+
+        # Re-read total — skill may have updated it (e.g. implement writes total=2 on step 1)
+        TOTAL=$(cat "$TOTAL_FILE" 2>/dev/null || echo 1)
+        export TOTAL
+
+        if [[ "$STEP" -lt "$TOTAL" ]]; then
+            echo $((STEP + 1)) > "$STEP_FILE"
+            continue
+        fi
+
+        # All steps for this skill complete — dispatch lifecycle hooks
+        HOOK=""
+        if [[ -n "$OUTCOME" ]]; then
+            HOOK=$(read_hook "$SKILL" "on_result.${OUTCOME}")
+        fi
+        if [[ -z "$HOOK" ]]; then
+            HOOK=$(read_hook "$SKILL" "on_success")
+        fi
+        if [[ -n "$HOOK" ]]; then
+            dispatch_hook "$HOOK"
+        fi
+
+        # Pop queue (remove first line)
+        sed -i '1d' "$QUEUE_FILE"
+
+        # Reset step/total/branch for the next skill
+        rm -f "$STEP_FILE" "$TOTAL_FILE" "$BRANCH_FILE"
+
+        # Check if queue is now empty
+        if ! grep -q '[^[:space:]]' "$QUEUE_FILE" 2>/dev/null; then
+            echo "$(date -Iseconds) All skills in queue complete." | tee -a "$LOG_FILE"
+            echo "All queued skills complete." > "$DONE_FILE"
+            exit 0
+        fi
+
+        echo "$(date -Iseconds) Advancing to next skill in queue." | tee -a "$LOG_FILE"
+        continue
+    fi
+
+    # Unknown status
+    echo "$(date -Iseconds) Unknown result status '${STATUS}' — retrying in 30s." | tee -a "$LOG_FILE"
+    sleep 30
 done

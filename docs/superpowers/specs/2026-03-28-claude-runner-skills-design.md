@@ -134,6 +134,18 @@ claude-runner add skill handle-pr-comments <name> <repo-path> pr=<number>
 
 Each invocation appends to the queue for `<name>`. The service is started automatically on the first `add skill` for a name.
 
+### Argument Validation
+
+`add skill` validates all arguments before writing to the queue. Failures print an error and exit non-zero without modifying state.
+
+| Skill | Validation |
+|---|---|
+| `implement` | `spec=` path exists and is a file; `<repo-path>` exists and is a git repo |
+| `review-pr` | `<repo-path>` exists and is a git repo; `pr=` exists on Gitea (`tea pr view <n>` succeeds) |
+| `handle-pr-comments` | same as `review-pr` |
+
+All skills: `<repo-path>` must exist and be a git repository.
+
 ### Unchanged Commands
 
 `remove`, `list`, `status`, `logs`, `list-stuck`, `clear-stuck`, `list-done`, `clear-done`, `add-account`

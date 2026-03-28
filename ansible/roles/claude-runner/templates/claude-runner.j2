@@ -32,12 +32,15 @@ Commands:
   list-accounts                      Show all registered Claude accounts
 
 Skills:
-  implement  <name> <repo-path> spec=<path>
-  review-pr  <name> <repo-path> pr=<number>
+  implement  <name> <repo-path> spec=<path> [base=<branch>]
+  review-pr  <name> <repo-path> pr=<number> [base=<branch>]
   handle-pr-comments <name> <repo-path> pr=<number>
+
+  base= sets the branch to start work from and the PR target (default: main)
 
 Examples:
   claude-runner add skill implement homelab /home/claude/src/homelab spec=docs/superpowers/specs/2026-03-28-foo-design.md
+  claude-runner add skill implement homelab /home/claude/src/homelab spec=docs/superpowers/specs/2026-03-28-foo-design.md base=feature/my-branch
   claude-runner add skill review-pr homelab /home/claude/src/homelab pr=42
 EOF
     exit 1
@@ -89,7 +92,7 @@ cmd_add_skill() {
         echo "Error: repo-path does not exist: $repo_path" >&2
         exit 1
     fi
-    if ! git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1; then
+    if ! git -c safe.directory="$repo_path" -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1; then
         echo "Error: not a git repository: $repo_path" >&2
         exit 1
     fi

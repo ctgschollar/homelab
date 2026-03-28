@@ -17,49 +17,142 @@ usage() {
 Usage: claude-runner <command> [args]
 
 Commands:
-  add <name> <path>                    Register a repo and start its runner service
-  remove <name>                        Stop and remove a runner
-  add-instruction <name>               Interactively set the task for a runner
-  list                                 Show all runners and their service status
-  status <name>                        Tail the journal for a runner
-  logs <name>                          Tail the log file with human-readable output
-  list-stuck                           Show all runners with a stuck token
-  clear-stuck <name>                   Remove the stuck token for a runner
-  list-done                            Show all runners that have signalled completion
-  clear-done <name>                    Remove the done file and restart the runner
-  add-account <name> <config-dir>      Register a Claude account config dir
-  remove-account <name>                Deregister a Claude account
-  list-accounts                        Show all registered Claude accounts
+  add skill <skill> <name> <repo-path> [key=val ...]
+                                     Queue a skill for a named runner instance
+  remove <name>                      Stop and remove a runner
+  list                               Show all runners, queue depth, and active skill
+  status <name>                      Tail the journal for a runner
+  logs <name>                        Tail the log file with human-readable output
+  list-stuck                         Show all runners with a stuck token
+  clear-stuck <name>                 Remove the stuck token for a runner
+  list-done                          Show all runners that have signalled completion
+  clear-done <name>                  Remove the done file and restart the runner
+  add-account <name> <config-dir>    Register a Claude account config dir
+  remove-account <name>              Deregister a Claude account
+  list-accounts                      Show all registered Claude accounts
+
+Skills:
+  implement  <name> <repo-path> spec=<path>
+  review-pr  <name> <repo-path> pr=<number>
+  handle-pr-comments <name> <repo-path> pr=<number>
+
+Examples:
+  claude-runner add skill implement homelab /home/claude/src/homelab spec=docs/superpowers/specs/2026-03-28-foo-design.md
+  claude-runner add skill review-pr homelab /home/claude/src/homelab pr=42
 EOF
     exit 1
 }
 
-cmd_add() {
-    local name="${1:?add requires a name}"
-    local path="${2:?add requires a path}"
+# Register repo + create env file if not already registered.
+# Sets claude_config_dir if exactly one account is registered.
+_ensure_registered() {
+    local name="$1"
+    local repo_path="$2"
 
-    if ! [[ -d "$path" ]]; then
-        echo "Error: directory does not exist: $path" >&2
-        exit 1
-    fi
-
-    # Canonicalize path
-    path="$(realpath "$path")"
-
-    # Reject duplicate names
     if grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
-        echo "Error: '${name}' already exists in ${REPOS_CONF}" >&2
-        exit 1
+        return 0  # already registered
     fi
 
-    echo "${name}=${path}" >> "$REPOS_CONF"
-    echo "REPO_PATH=${path}" > "${ENV_DIR}/${name}"
+    echo "${name}=${repo_path}" >> "$REPOS_CONF"
+    printf 'REPO_PATH=%s\n' "$repo_path" > "${ENV_DIR}/${name}"
     chmod 644 "${ENV_DIR}/${name}"
 
+    # Auto-assign account if exactly one is registered
+    if [[ -f "$ACCOUNTS_CONF" ]]; then
+        mapfile -t account_lines < <(grep -v '^[[:space:]]*#' "$ACCOUNTS_CONF" | grep -v '^[[:space:]]*$')
+        if [[ ${#account_lines[@]} -eq 1 ]]; then
+            local config_dir="${account_lines[0]#*=}"
+            echo "CLAUDE_CONFIG_DIR=${config_dir}" >> "${ENV_DIR}/${name}"
+        fi
+    fi
+
     systemctl daemon-reload
-    systemctl enable --now "claude-runner@${name}.service"
-    echo "Started claude-runner@${name} for ${path}"
-    echo "Tip: set instructions with: claude-runner add-instruction ${name}"
+    systemctl enable "claude-runner@${name}.service"
+    echo "Registered claude-runner@${name} for ${repo_path}"
+}
+
+cmd_add_skill() {
+    if [[ "${1:-}" != "skill" ]]; then
+        echo "Error: expected 'add skill <skill> <name> <repo-path> [args...]'" >&2
+        exit 1
+    fi
+    shift  # consume "skill"
+
+    local skill="${1:?add skill requires a skill name (implement|review-pr|handle-pr-comments)}"
+    local name="${2:?add skill requires an instance name}"
+    local repo_path="${3:?add skill requires a repo-path}"
+    shift 3
+    local skill_args="$*"
+
+    # Validate repo path exists and is a git repo
+    if [[ ! -d "$repo_path" ]]; then
+        echo "Error: repo-path does not exist: $repo_path" >&2
+        exit 1
+    fi
+    if ! git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "Error: not a git repository: $repo_path" >&2
+        exit 1
+    fi
+
+    repo_path="$(realpath "$repo_path")"
+
+    # Skill-specific validation
+    case "$skill" in
+        implement)
+            local spec_path
+            spec_path="$(printf '%s\n' $skill_args | grep -oP '^spec=\K.*' || true)"
+            if [[ -z "$spec_path" ]]; then
+                echo "Error: implement requires spec=<path>" >&2
+                exit 1
+            fi
+            if [[ ! -f "$spec_path" ]]; then
+                echo "Error: spec file not found: $spec_path" >&2
+                exit 1
+            fi
+            ;;
+        review-pr|handle-pr-comments)
+            local pr_num
+            pr_num="$(printf '%s\n' $skill_args | grep -oP '^pr=\K.*' || true)"
+            if [[ -z "$pr_num" ]]; then
+                echo "Error: ${skill} requires pr=<number>" >&2
+                exit 1
+            fi
+            if ! tea pr view "$pr_num" --repo-path "$repo_path" >/dev/null 2>&1; then
+                echo "Error: PR #${pr_num} not found on Gitea (tea pr view ${pr_num} failed)" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Error: unknown skill '${skill}'. Valid: implement, review-pr, handle-pr-comments" >&2
+            exit 1
+            ;;
+    esac
+
+    # Register repo and env if needed
+    _ensure_registered "$name" "$repo_path"
+
+    # Create per-instance task directory
+    local task_instance_dir="${TASK_DIR}/${name}"
+    mkdir -p "$task_instance_dir"
+    chmod 775 "$task_instance_dir"
+
+    # Append to queue
+    local queue_file="${task_instance_dir}/queue"
+    if [[ -n "$skill_args" ]]; then
+        echo "${skill} ${skill_args}" >> "$queue_file"
+    else
+        echo "${skill}" >> "$queue_file"
+    fi
+    chmod 664 "$queue_file"
+
+    # Start or restart service
+    if systemctl is-active --quiet "claude-runner@${name}.service" 2>/dev/null; then
+        echo "Runner claude-runner@${name} already active; skill appended to queue."
+    else
+        systemctl start "claude-runner@${name}.service"
+        echo "Started claude-runner@${name}"
+    fi
+    echo "Queued: ${skill} ${skill_args:+(${skill_args})}"
 }
 
 cmd_remove() {
@@ -70,160 +163,11 @@ cmd_remove() {
     fi
     systemctl disable "claude-runner@${name}.service" 2>/dev/null || true
 
-    # Remove from repos.conf
     sed -i "/^${name}=/d" "$REPOS_CONF"
-
-    # Remove env file and task file
     rm -f "${ENV_DIR}/${name}"
-    rm -f "${TASK_DIR}/${name}.md"
-    rm -f "${TASK_DIR}/${name}.stuck"
-    rm -f "${TASK_DIR}/${name}.done"
-    rm -f "${TASK_DIR}/${name}.step"
-    rm -f "${TASK_DIR}/${name}.total"
-    rm -f "${TASK_DIR}/${name}.start-sha"
-    rm -f "${TASK_DIR}/${name}.spec-ref"
-    rm -f "${TASK_DIR}/${name}.branch"
-    rm -f "${TASK_DIR}/${name}".plan-*.md
-    rm -f "${TASK_DIR}/${name}".step-*.done
+    rm -rf "${TASK_DIR}/${name}"
 
     echo "Removed claude-runner@${name}"
-}
-
-cmd_add_instruction() {
-    local name="${1:?add-instruction requires a name}"
-
-    if ! grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
-        echo "Error: '${name}' is not registered. Use: claude-runner add ${name} <path>" >&2
-        exit 1
-    fi
-
-    local task_file="${TASK_DIR}/${name}.md"
-    local env_file="${ENV_DIR}/${name}"
-    local repo_path
-    repo_path=$(grep "^REPO_PATH=" "$env_file" 2>/dev/null | cut -d= -f2-)
-
-    # --- Spec selection ---
-    local spec_file=""
-    local spec_rel=""
-    local spec_dir="${repo_path}/docs/superpowers/specs"
-    if [[ -d "$spec_dir" ]]; then
-        mapfile -t spec_files < <(find "$spec_dir" -maxdepth 1 -name "*.md" | sort)
-        if [[ ${#spec_files[@]} -gt 0 ]]; then
-            echo ""
-            echo "Select spec file:"
-            local i=1
-            for f in "${spec_files[@]}"; do
-                printf "  %d) %s\n" "$i" "$(basename "$f")"
-                ((i++))
-            done
-            read -rp "> " spec_idx
-            if ! [[ "$spec_idx" =~ ^[0-9]+$ ]] || (( spec_idx < 1 || spec_idx > ${#spec_files[@]} )); then
-                echo "Error: invalid selection" >&2; exit 1
-            fi
-            spec_file="${spec_files[$((spec_idx-1))]}"
-            local spec_basename
-            spec_basename="$(basename "$spec_file")"
-            if [[ "$spec_basename" != *-design.md ]]; then
-                echo "Error: spec file must end in '-design.md' (got: ${spec_basename})" >&2
-                echo "Spec files must follow the naming convention: YYYY-MM-DD-<name>-design.md" >&2
-                exit 1
-            fi
-            spec_rel="docs/superpowers/specs/${spec_basename}"
-        else
-            echo "Warning: no spec files found in ${spec_dir} — skipping spec"
-        fi
-    else
-        echo "Warning: ${spec_dir} not found — skipping spec selection"
-    fi
-
-    # --- Python? ---
-    echo ""
-    local uses_python="n"
-    read -rp "Does this project use Python? (y/n): " uses_python
-
-    # --- Account selection ---
-    local claude_config_dir=""
-    if [[ -f "$ACCOUNTS_CONF" ]]; then
-        mapfile -t account_lines < <(grep -v '^[[:space:]]*#' "$ACCOUNTS_CONF" | grep -v '^[[:space:]]*$')
-        if [[ ${#account_lines[@]} -gt 1 ]]; then
-            echo ""
-            echo "Select Claude account:"
-            local i=1
-            for line in "${account_lines[@]}"; do
-                printf "  %d) %s\n" "$i" "${line%%=*}"
-                ((i++))
-            done
-            read -rp "> " acct_idx
-            if ! [[ "$acct_idx" =~ ^[0-9]+$ ]] || (( acct_idx < 1 || acct_idx > ${#account_lines[@]} )); then
-                echo "Error: invalid selection" >&2; exit 1
-            fi
-            local selected_line="${account_lines[$((acct_idx-1))]}"
-            claude_config_dir="${selected_line#*=}"
-        elif [[ ${#account_lines[@]} -eq 1 ]]; then
-            claude_config_dir="${account_lines[0]#*=}"
-        fi
-    fi
-
-    # --- Reset planning state ---
-    rm -f "${TASK_DIR}/${name}.total"
-    rm -f "${TASK_DIR}/${name}.step"
-    rm -f "${TASK_DIR}/${name}.start-sha"
-    rm -f "${TASK_DIR}/${name}.branch"
-    rm -f "${TASK_DIR}/${name}".plan-*.md
-    rm -f "${TASK_DIR}/${name}".step-*.done
-
-    # --- Write task file (rules + spec) ---
-    cat > "$task_file" <<HEADER
-# Task: ${name}
-
-## Rules — read these first, they apply to every step
-
-- Work autonomously. Do not ask for permission or human approval at any point.
-- Use your own discretion on all decisions.
-- If you reach a point where you cannot continue for any reason, write a plain-text
-  description of why to:
-  ${TASK_DIR}/${name}.stuck
-  Then stop immediately — do not loop or retry.
-- When the current step is complete, write a one-line summary to:
-  ${TASK_DIR}/${name}.step-N.done
-  where N is the step number shown in the "Current step" header below.
-  The runner will advance to the next step automatically.
-  Do not attempt steps beyond the one shown — stop after writing the done file.
-HEADER
-
-    if [[ "$uses_python" == "y" || "$uses_python" == "Y" ]]; then
-        cat >> "$task_file" <<'PYTHON'
-- Always use `hatch run` for all Python commands:
-  `hatch run pytest`, `hatch run python`, etc.
-  Never use bare `python`, `python3`, or `pip` directly.
-PYTHON
-    fi
-
-    if [[ -n "$spec_file" && -f "$spec_file" ]]; then
-        {
-            printf '\n\n## Spec\n\nSource: %s\n\n---\n\n' "$spec_rel"
-            cat "$spec_file"
-            printf '\n\n---\n'
-        } >> "$task_file"
-    fi
-
-    chmod 644 "$task_file"
-
-    # --- Write spec-ref ---
-    if [[ -n "$spec_file" ]]; then
-        echo "$(basename "$spec_file")" > "${TASK_DIR}/${name}.spec-ref"
-        chmod 644 "${TASK_DIR}/${name}.spec-ref"
-    fi
-
-    # --- Update env file with selected account ---
-    if [[ -n "$claude_config_dir" ]]; then
-        sed -i '/^CLAUDE_CONFIG_DIR=/d' "$env_file"
-        echo "CLAUDE_CONFIG_DIR=${claude_config_dir}" >> "$env_file"
-    fi
-
-    echo ""
-    echo "Instruction set for claude-runner@${name}"
-    echo "Restart the runner to apply: systemctl restart claude-runner@${name}.service"
 }
 
 cmd_add_account() {
@@ -257,7 +201,6 @@ cmd_remove_account() {
     local config_dir
     config_dir=$(grep "^${name}=" "$ACCOUNTS_CONF" | cut -d= -f2-)
 
-    # Clear CLAUDE_CONFIG_DIR from any env files that used this account
     while IFS='=' read -r inst_name _inst_path; do
         [[ -z "$inst_name" || "$inst_name" == \#* ]] && continue
         local env_file="${ENV_DIR}/${inst_name}"
@@ -268,7 +211,6 @@ cmd_remove_account() {
     done < "$REPOS_CONF"
 
     sed -i "/^${name}=/d" "$ACCOUNTS_CONF"
-
     echo "Removed account '${name}'"
 }
 
@@ -289,28 +231,25 @@ cmd_list_accounts() {
 
 cmd_list_done() {
     local found=0
-
     printf "%-20s %s\n" "NAME" "SUMMARY"
     printf "%-20s %s\n" "----" "-------"
-
-    for done_file in "${TASK_DIR}"/*.done; do
+    for done_dir in "${TASK_DIR}"/*/; do
+        [[ -d "$done_dir" ]] || continue
+        local done_file="${done_dir}done"
         [[ -f "$done_file" ]] || continue
         local name
-        name=$(basename "$done_file" .done)
+        name=$(basename "$done_dir")
         local summary
         summary=$(head -1 "$done_file")
         printf "%-20s %s\n" "$name" "$summary"
         found=1
     done
-
-    if [[ $found -eq 0 ]]; then
-        echo "No completed runners."
-    fi
+    [[ $found -eq 0 ]] && echo "No completed runners."
 }
 
 cmd_clear_done() {
     local name="${1:?clear-done requires a name}"
-    local done_file="${TASK_DIR}/${name}.done"
+    local done_file="${TASK_DIR}/${name}/done"
 
     if [[ ! -f "$done_file" ]]; then
         echo "Error: no done file found for '${name}'" >&2
@@ -325,28 +264,25 @@ cmd_clear_done() {
 
 cmd_list_stuck() {
     local found=0
-
     printf "%-20s %s\n" "NAME" "REASON"
     printf "%-20s %s\n" "----" "------"
-
-    for stuck_file in "${TASK_DIR}"/*.stuck; do
+    for stuck_dir in "${TASK_DIR}"/*/; do
+        [[ -d "$stuck_dir" ]] || continue
+        local stuck_file="${stuck_dir}stuck"
         [[ -f "$stuck_file" ]] || continue
         local name
-        name=$(basename "$stuck_file" .stuck)
+        name=$(basename "$stuck_dir")
         local reason
         reason=$(head -1 "$stuck_file")
         printf "%-20s %s\n" "$name" "$reason"
         found=1
     done
-
-    if [[ $found -eq 0 ]]; then
-        echo "No stuck runners."
-    fi
+    [[ $found -eq 0 ]] && echo "No stuck runners."
 }
 
 cmd_clear_stuck() {
     local name="${1:?clear-stuck requires a name}"
-    local stuck_file="${TASK_DIR}/${name}.stuck"
+    local stuck_file="${TASK_DIR}/${name}/stuck"
 
     if [[ ! -f "$stuck_file" ]]; then
         echo "Error: no stuck token found for '${name}'" >&2
@@ -360,38 +296,48 @@ cmd_clear_stuck() {
 
 cmd_list() {
     if [[ ! -s "$REPOS_CONF" ]]; then
-        echo "No repos configured. Use: claude-runner add <name> <path>"
+        echo "No repos configured. Use: claude-runner add skill <skill> <name> <repo-path> [args...]"
         return
     fi
 
-    printf "%-20s %-40s %-10s %-8s %s\n" "NAME" "PATH" "STATUS" "STEP" "INSTRUCTION"
-    printf "%-20s %-40s %-10s %-8s %s\n" "----" "----" "------" "----" "-----------"
+    printf "%-20s %-35s %-10s %-8s %-6s %s\n" "NAME" "PATH" "STATUS" "STEP" "QUEUE" "CURRENT SKILL"
+    printf "%-20s %-35s %-10s %-8s %-6s %s\n" "----" "----" "------" "----" "-----" "-------------"
 
     while IFS='=' read -r name path; do
         [[ -z "$name" || "$name" == \#* ]] && continue
-        local status
-        if [[ -f "${TASK_DIR}/${name}.done" ]]; then
+
+        local task_instance_dir="${TASK_DIR}/${name}"
+        local status step total step_col queue_depth current_skill
+
+        if [[ -f "${task_instance_dir}/done" ]]; then
             status="done"
-        elif [[ -f "${TASK_DIR}/${name}.stuck" ]]; then
+        elif [[ -f "${task_instance_dir}/stuck" ]]; then
             status="stuck"
         else
             status="$(systemctl is-active "claude-runner@${name}.service" 2>/dev/null || echo inactive)"
         fi
-        local step total step_col
-        step=$(cat "${TASK_DIR}/${name}.step" 2>/dev/null || echo "-")
-        total=$(cat "${TASK_DIR}/${name}.total" 2>/dev/null || echo "-")
+
+        step=$(cat "${task_instance_dir}/step" 2>/dev/null || echo "-")
+        total=$(cat "${task_instance_dir}/total" 2>/dev/null || echo "-")
         if [[ "$step" == "-" ]]; then
             step_col="-"
         else
             step_col="${step}/${total}"
         fi
-        local instruction
-        if [[ -f "${TASK_DIR}/${name}.spec-ref" || -f "${TASK_DIR}/${name}.md" ]]; then
-            instruction="set"
-        else
-            instruction="none"
+
+        queue_depth=0
+        current_skill="-"
+        if [[ -f "${task_instance_dir}/queue" ]]; then
+            queue_depth=$(grep -c '[^[:space:]]' "${task_instance_dir}/queue" 2>/dev/null || echo 0)
+            if [[ $queue_depth -gt 0 ]]; then
+                local first_line
+                first_line=$(head -1 "${task_instance_dir}/queue")
+                current_skill="${first_line%% *}"
+            fi
         fi
-        printf "%-20s %-40s %-10s %-8s %s\n" "$name" "$path" "$status" "$step_col" "$instruction"
+
+        printf "%-20s %-35s %-10s %-8s %-6s %s\n" \
+            "$name" "$path" "$status" "$step_col" "$queue_depth" "$current_skill"
     done < "$REPOS_CONF"
 }
 
@@ -440,9 +386,8 @@ cmd_logs() {
 }
 
 case "${1:-}" in
-    add)             shift; cmd_add "$@" ;;
+    add)             shift; cmd_add_skill "$@" ;;
     remove)          shift; cmd_remove "$@" ;;
-    add-instruction) shift; cmd_add_instruction "$@" ;;
     list)            cmd_list ;;
     status)          shift; cmd_status "$@" ;;
     logs)            shift; cmd_logs "$@" ;;

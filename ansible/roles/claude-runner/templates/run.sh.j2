@@ -1,7 +1,7 @@
 #!/bin/bash
 # Managed by Ansible — do not edit directly.
 # Source: ansible/roles/claude-runner/templates/run.sh.j2
-set -uo pipefail
+set -euo pipefail
 
 REPO_PATH="${1:?Usage: run.sh <repo-path> <name>}"
 NAME="${2:?Usage: run.sh <repo-path> <name>}"
@@ -62,20 +62,23 @@ read_hook() {
 # The first word is the action script name; remaining words are its arguments.
 dispatch_hook() {
     local hook_str="$1"
-    # Use eval to expand $VAR references within the hook string
-    # then split into action + args via set --
-    eval "set -- $hook_str" 2>/dev/null || {
+    # Expand $VAR references using envsubst, then word-split safely
+    local expanded
+    expanded=$(envsubst <<< "$hook_str")
+    read -ra hook_parts <<< "$expanded"
+    if [[ ${#hook_parts[@]} -eq 0 ]]; then
         echo "$(date -Iseconds) Hook parse error: ${hook_str}" | tee -a "$LOG_FILE"
         return 1
-    }
-    local action="$1"; shift
+    fi
+    local action="${hook_parts[0]}"
+    local hook_argv=("${hook_parts[@]:1}")
     local action_script="${BASE_DIR}/actions/${action}"
     if [[ ! -x "$action_script" ]]; then
         echo "$(date -Iseconds) Unknown action: ${action}" | tee -a "$LOG_FILE"
         return 1
     fi
-    echo "$(date -Iseconds) Dispatching: ${action} $*" | tee -a "$LOG_FILE"
-    "$action_script" "$@" 2>&1 | tee -a "$LOG_FILE"
+    echo "$(date -Iseconds) Dispatching: ${action} ${hook_argv[*]}" | tee -a "$LOG_FILE"
+    "$action_script" "${hook_argv[@]}" 2>&1 | tee -a "$LOG_FILE"
 }
 
 while true; do
@@ -122,16 +125,20 @@ while true; do
     while IFS='=' read -r k v; do
         [[ -z "$k" ]] && continue
         local_k=$(echo "$k" | tr '[:lower:]' '[:upper:]')
+        # Only export valid identifier names
+        [[ "$local_k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
         export "${local_k}=${v}"
     done < <(echo "$SKILL_ARGS" | tr ' ' '\n' | grep '=')
-    export STATUS="" OUTCOME="" MESSAGE="" STEP TOTAL NAME REPO_PATH
+    CLAUDE_RUNNER_BASE_DIR="${BASE_DIR}"
+    REPO="${REPO_PATH}"
+    export STATUS="" OUTCOME="" MESSAGE="" STEP TOTAL NAME REPO_PATH REPO BASE_DIR CLAUDE_RUNNER_BASE_DIR
 
     # Remove stale result.json from previous invocation
     rm -f "$RESULT_FILE"
 
     # Invoke Claude with the skill
     echo "$(date -Iseconds) Running /${SKILL} step=${STEP}/${TOTAL} name=${NAME}" | tee -a "$LOG_FILE"
-    claude --print "/${SKILL} ${SKILL_ARGS} step=${STEP} total=${TOTAL} branch=${BRANCH} name=${NAME}" \
+    claude --print "/${SKILL} ${SKILL_ARGS} step=${STEP} total=${TOTAL} branch=${BRANCH} name=${NAME} repo=${REPO_PATH}" \
         --verbose --output-format stream-json --dangerously-skip-permissions 2>&1 | tee -a "$LOG_FILE"
 
     if check_rate_limit; then continue; fi
@@ -180,8 +187,11 @@ while true; do
             dispatch_hook "$HOOK"
         fi
 
-        # Pop queue (remove first line)
-        sed -i '1d' "$QUEUE_FILE"
+        # Pop queue (remove first line) atomically
+        (
+            flock -x 200
+            sed -i '1d' "$QUEUE_FILE"
+        ) 200>"${QUEUE_FILE}.lock"
 
         # Reset step/total/branch for the next skill
         rm -f "$STEP_FILE" "$TOTAL_FILE" "$BRANCH_FILE"

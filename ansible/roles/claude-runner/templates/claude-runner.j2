@@ -100,7 +100,7 @@ cmd_add_skill() {
     case "$skill" in
         implement)
             local spec_path
-            spec_path="$(printf '%s\n' $skill_args | grep -oP '^spec=\K.*' || true)"
+            spec_path="$(printf '%s\n' "$skill_args" | grep -oP '^spec=\K.*' || true)"
             if [[ -z "$spec_path" ]]; then
                 echo "Error: implement requires spec=<path>" >&2
                 exit 1
@@ -112,7 +112,7 @@ cmd_add_skill() {
             ;;
         review-pr|handle-pr-comments)
             local pr_num
-            pr_num="$(printf '%s\n' $skill_args | grep -oP '^pr=\K.*' || true)"
+            pr_num="$(printf '%s\n' "$skill_args" | grep -oP '^pr=\K.*' || true)"
             if [[ -z "$pr_num" ]]; then
                 echo "Error: ${skill} requires pr=<number>" >&2
                 exit 1

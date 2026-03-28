@@ -4,6 +4,8 @@
 # Env: REPO_PATH (set by runner env file), NAME (instance name)
 set -euo pipefail
 
+BASE_DIR="${CLAUDE_RUNNER_BASE_DIR:-/opt/claude-runner}"
+
 BASE_BRANCH="main"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -12,7 +14,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-BRANCH_FILE="/opt/claude-runner/tasks/${NAME}/branch"
+BRANCH_FILE="${BASE_DIR}/tasks/${NAME}/branch"
 if [[ ! -f "$BRANCH_FILE" ]]; then
     echo "create_pr: no branch file found at $BRANCH_FILE" >&2
     exit 1

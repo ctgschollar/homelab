@@ -4,6 +4,8 @@
 # Env: NAME (instance name)
 set -euo pipefail
 
+BASE_DIR="${CLAUDE_RUNNER_BASE_DIR:-/opt/claude-runner}"
+
 if [[ $# -lt 1 ]]; then
     echo "chain_skill: requires <skill> [args...]" >&2
     exit 1
@@ -13,7 +15,7 @@ SKILL="$1"
 shift
 SKILL_ARGS="$*"
 
-QUEUE_FILE="/opt/claude-runner/tasks/${NAME}/queue"
+QUEUE_FILE="${BASE_DIR}/tasks/${NAME}/queue"
 
 if [[ -n "$SKILL_ARGS" ]]; then
     NEW_ENTRY="${SKILL} ${SKILL_ARGS}"
@@ -21,14 +23,15 @@ else
     NEW_ENTRY="${SKILL}"
 fi
 
-# Prepend to queue (write new entry then existing content)
-if [[ -f "$QUEUE_FILE" ]]; then
+# Prepend to queue atomically using flock
+(
+    flock -x 200
     TMP=$(mktemp)
     echo "$NEW_ENTRY" > "$TMP"
-    cat "$QUEUE_FILE" >> "$TMP"
+    if [[ -f "$QUEUE_FILE" ]]; then
+        cat "$QUEUE_FILE" >> "$TMP"
+    fi
     mv "$TMP" "$QUEUE_FILE"
-else
-    echo "$NEW_ENTRY" > "$QUEUE_FILE"
-fi
+) 200>"${QUEUE_FILE}.lock"
 
 echo "Chained skill '${SKILL}' to front of queue for ${NAME}"

@@ -21,6 +21,11 @@ if [[ ! -f "$BRANCH_FILE" ]]; then
 fi
 BRANCH=$(cat "$BRANCH_FILE")
 
+if [[ "$BRANCH" == "$BASE_BRANCH" ]]; then
+    echo "create_pr: head branch equals base branch (${BRANCH}). Did you mean to use base=main?" >&2
+    exit 1
+fi
+
 cd "${REPO_PATH:?REPO_PATH not set}"
 
 git push -u origin "$BRANCH"

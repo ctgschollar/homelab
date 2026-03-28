@@ -139,6 +139,7 @@ cmd_add_skill() {
     local task_instance_dir="${TASK_DIR}/${name}"
     mkdir -p "$task_instance_dir"
     chmod 775 "$task_instance_dir"
+    chown {{ claude_user }}:{{ claude_user }} "$task_instance_dir"
 
     # Append to queue
     local queue_file="${task_instance_dir}/queue"

@@ -138,8 +138,13 @@ while true; do
     done < <(echo "$SKILL_ARGS" | tr ' ' '\n' | grep '=')
     CLAUDE_RUNNER_BASE_DIR="${BASE_DIR}"
     REPO="${REPO_PATH}"
-    # Default base branch to main if not provided via skill args
+    # Default base branch to main if not provided via skill args.
+    # base=current resolves to whatever is checked out in the repo at run time,
+    # enabling PR stacking when the previous skill's branch is still checked out.
     BASE="${BASE:-main}"
+    if [[ "$BASE" == "current" ]]; then
+        BASE=$(git rev-parse --abbrev-ref HEAD)
+    fi
     export STATUS="" OUTCOME="" MESSAGE="" STEP TOTAL NAME REPO_PATH REPO BASE_DIR CLAUDE_RUNNER_BASE_DIR BASE
 
     # Remove stale result.json from previous invocation

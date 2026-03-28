@@ -103,3 +103,52 @@
     group: root
     mode: '0644'
   notify: reload systemd
+
+- name: Create actions directory
+  file:
+    path: "{{ claude_runner_base_dir }}/actions"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install action scripts
+  copy:
+    src: "actions/{{ item }}"
+    dest: "{{ claude_runner_base_dir }}/actions/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - create_pr
+    - notify_user
+    - post_gitea_comment
+    - chain_skill
+
+- name: Install skills.conf
+  template:
+    src: skills.conf.j2
+    dest: "{{ claude_runner_base_dir }}/skills.conf"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create claude commands directory
+  file:
+    path: "{{ claude_user_home }}/.claude/commands"
+    state: directory
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0755'
+
+- name: Install skill command files
+  copy:
+    src: "commands/{{ item }}"
+    dest: "{{ claude_user_home }}/.claude/commands/{{ item }}"
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0644'
+  loop:
+    - implement.md
+    - review-pr.md
+    - handle-pr-comments.md

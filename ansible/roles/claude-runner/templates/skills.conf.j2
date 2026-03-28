@@ -1,0 +1,20 @@
+# /opt/claude-runner/skills.conf
+# Lifecycle hooks per skill type.
+# Hook values are shell strings; variables are expanded before execution:
+#   $STATUS, $OUTCOME, $MESSAGE — from result.json
+#   $STEP, $TOTAL — from runner state
+#   $NAME — instance name
+#   Uppercase of any key=value in SKILL_ARGS (e.g. pr=42 → $PR)
+
+[implement]
+on_success=create_pr --base main
+on_stuck=notify_user "stuck on step $STEP: $MESSAGE"
+
+[review-pr]
+on_result.changes_required=chain_skill handle-pr-comments pr=$PR repo=$REPO
+on_result.approved=notify_user "PR $PR approved, no changes needed"
+on_stuck=notify_user "review could not complete: $MESSAGE"
+
+[handle-pr-comments]
+on_success=notify_user "PR comments resolved"
+on_stuck=notify_user "could not resolve comments: $MESSAGE"

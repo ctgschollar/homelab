@@ -1,6 +1,20 @@
 ---
 # ansible/roles/tools/tasks/install-cloudflared.yml
-# Placeholder — content to be added when cloudflared is needed
-- name: cloudflared install not yet implemented
-  fail:
-    msg: "install-cloudflared.yml is a placeholder. Implement before using cloudflared in required_tools."
+
+- name: Download Cloudflare GPG key
+  get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    mode: '0444'
+
+- name: Add Cloudflare apt repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared {{ ansible_distribution_release }} main"
+    state: present
+    filename: cloudflared
+
+- name: Install cloudflared package
+  apt:
+    name: cloudflared
+    state: present
+    update_cache: yes

@@ -15,9 +15,10 @@ dks02   IN A   192.168.3.71
 dks03   IN A   192.168.3.72
 dks04   IN A   192.168.3.73
 dks05   IN A   192.168.3.74
+edge01  IN A   192.168.3.91
+claude  IN A   192.168.3.79
 
 ; Wildcard default -> Traefik
 *       IN A   192.168.3.70; dks01
         IN A   192.168.3.71; dks02
         IN A   192.168.3.72; dks03
-

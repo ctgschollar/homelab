@@ -1,0 +1,120 @@
+#!/bin/bash
+# resolve_watch — post consolidated review response and clean up watcher state
+# Usage: resolve_watch pr=<number>
+# Env: CLAUDE_RUNNER_BASE_DIR, NAME, REPO_PATH
+set -euo pipefail
+
+PR_NUM=""
+for arg in "$@"; do
+    case "$arg" in
+        pr=*) PR_NUM="${arg#pr=}" ;;
+        *) echo "resolve_watch: unknown arg: $arg" >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PR_NUM" ]]; then
+    echo "resolve_watch: requires pr=<number>" >&2
+    exit 1
+fi
+
+BASE_DIR="${CLAUDE_RUNNER_BASE_DIR:-/opt/claude-runner}"
+WATCH_DIR="${BASE_DIR}/tasks/${NAME}/watch/${PR_NUM}"
+DETAILS_FILE="${WATCH_DIR}/details.json"
+REPLIED_DIR="${WATCH_DIR}/replied"
+POSTED_FILE="${WATCH_DIR}/posted_comments.json"
+
+if [[ ! -f "$DETAILS_FILE" ]]; then
+    echo "resolve_watch: no details.json at ${DETAILS_FILE}" >&2
+    exit 1
+fi
+
+if [[ ! -d "$REPLIED_DIR" ]] || [[ -z "$(ls -A "$REPLIED_DIR" 2>/dev/null)" ]]; then
+    echo "resolve_watch: no replied files in ${REPLIED_DIR}" >&2
+    exit 1
+fi
+
+# Build consolidated comment body from replied/ files.
+# Format per section:
+#   > @author: original body
+#
+#   response text
+#
+# Sections separated by ---
+_build_comment() {
+    local first=true
+    echo "## Review Response"
+    echo ""
+    for replied_file in "$REPLIED_DIR"/*; do
+        [[ -f "$replied_file" ]] || continue
+        local comment_id response_text author body
+        comment_id=$(basename "$replied_file")
+        response_text=$(cat "$replied_file")
+        author=$(jq -r --arg id "$comment_id" '
+            (.to_implement + .to_answer)[] |
+            select(.id == ($id | tonumber)) | .author
+        ' "$DETAILS_FILE" 2>/dev/null || echo "unknown")
+        body=$(jq -r --arg id "$comment_id" '
+            (.to_implement + .to_answer)[] |
+            select(.id == ($id | tonumber)) | .body
+        ' "$DETAILS_FILE" 2>/dev/null || echo "")
+        if [[ "$first" != "true" ]]; then
+            echo ""
+            echo "---"
+            echo ""
+        fi
+        first=false
+        echo "> @${author}: ${body}"
+        echo ""
+        echo "${response_text}"
+    done
+}
+
+COMMENT=$(_build_comment)
+
+# Post consolidated comment to Gitea
+cd "${REPO_PATH:?REPO_PATH not set}"
+tea issue comment "$PR_NUM" --body "$COMMENT"
+echo "resolve_watch: posted consolidated comment on PR #${PR_NUM}"
+
+# Update posted_comments.json — append IDs of all replied comments
+posted_ids=$(cat "$POSTED_FILE" 2>/dev/null || echo '[]')
+for replied_file in "$REPLIED_DIR"/*; do
+    [[ -f "$replied_file" ]] || continue
+    comment_id=$(basename "$replied_file")
+    posted_ids=$(echo "$posted_ids" | jq --arg id "$comment_id" '. + [($id | tonumber)]')
+done
+echo "$posted_ids" > "$POSTED_FILE"
+echo "resolve_watch: updated posted_comments.json"
+
+# Re-request reviews from all reviewers who requested changes
+mapfile -t reviewers < <(jq -r '.reviewers_requested_changes[]' "$DETAILS_FILE" 2>/dev/null || true)
+
+if [[ ${#reviewers[@]} -gt 0 ]]; then
+    TEA_CONFIG="${HOME}/.config/tea/config.yml"
+    if [[ ! -f "$TEA_CONFIG" ]]; then
+        echo "resolve_watch: warning: tea config not found, skipping review re-request" >&2
+    else
+        GITEA_URL=$(grep -A10 'logins:' "$TEA_CONFIG" | grep '^\s*url:' | head -1 | sed 's/.*url:[[:space:]]*//')
+        GITEA_TOKEN=$(grep -A10 'logins:' "$TEA_CONFIG" | grep '^\s*token:' | head -1 | sed 's/.*token:[[:space:]]*//')
+
+        REMOTE_URL=$(git remote get-url origin)
+        OWNER_REPO=$(echo "$REMOTE_URL" | sed -E 's|.*[:/]([^/]+/[^/]+)(\.git)?$|\1|')
+        OWNER="${OWNER_REPO%%/*}"
+        REPO_NAME="${OWNER_REPO#*/}"
+
+        reviewers_json=$(printf '%s\n' "${reviewers[@]}" | jq -Rs '[split("\n")[] | select(length > 0)]')
+
+        curl -sf -X POST \
+            "${GITEA_URL}/api/v1/repos/${OWNER}/${REPO_NAME}/pulls/${PR_NUM}/requested_reviewers" \
+            -H "Authorization: token ${GITEA_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"reviewers\": ${reviewers_json}}" > /dev/null
+        echo "resolve_watch: re-requested reviews from: ${reviewers[*]}"
+    fi
+fi
+
+# Cleanup: remove lock, details.json, replied/ — leave posted_comments.json intact
+rm -f "${WATCH_DIR}/lock"
+rm -f "${WATCH_DIR}/details.json"
+rm -rf "${WATCH_DIR}/replied"
+echo "resolve_watch: cleanup complete for PR #${PR_NUM}"

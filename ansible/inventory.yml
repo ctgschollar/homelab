@@ -39,3 +39,12 @@ all:
         ansible_user: root
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
+
+    gitea_runners:
+      hosts:
+        gt-runner-01:
+          ansible_host: 192.168.3.100
+      vars:
+        ansible_user: root
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"

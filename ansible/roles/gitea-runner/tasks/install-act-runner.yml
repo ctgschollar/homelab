@@ -1,0 +1,14 @@
+---
+# ansible/roles/gitea-runner/tasks/install-act-runner.yml
+
+- name: Set act_runner architecture
+  set_fact:
+    _act_runner_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}"
+
+- name: Download act_runner binary
+  get_url:
+    url: >-
+      https://gitea.com/gitea/act_runner/releases/download/v{{ gitea_act_runner_version }}/act_runner-{{ gitea_act_runner_version }}-linux-{{ _act_runner_arch }}
+    dest: /usr/local/bin/act_runner
+    mode: '0755'
+    force: yes

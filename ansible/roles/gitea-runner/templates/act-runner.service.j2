@@ -1,0 +1,17 @@
+[Unit]
+Description=Gitea act runner
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User={{ gitea_runner_user }}
+WorkingDirectory={{ gitea_runner_base_dir }}
+ExecStart=/usr/local/bin/act_runner daemon --config {{ gitea_runner_config_dir }}/config.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

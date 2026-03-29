@@ -48,3 +48,7 @@ tool_definitions:
   cloudflared:
     deps: [gnupg]
     tasks: install-cloudflared.yml
+
+  docker:
+    deps: [gnupg, curl]
+    tasks: install-docker.yml

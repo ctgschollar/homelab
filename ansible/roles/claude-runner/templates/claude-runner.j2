@@ -139,7 +139,9 @@ cmd_add_skill() {
     local task_instance_dir="${TASK_DIR}/${name}"
     mkdir -p "$task_instance_dir"
     chmod 775 "$task_instance_dir"
+{% endraw %}
     chown {{ claude_user }}:{{ claude_user }} "$task_instance_dir"
+{% raw %}
 
     # Append to queue
     local queue_file="${task_instance_dir}/queue"
@@ -333,7 +335,7 @@ cmd_list() {
         queue_depth=0
         current_skill="-"
         if [[ -f "${task_instance_dir}/queue" ]]; then
-            queue_depth=$(grep -c '[^[:space:]]' "${task_instance_dir}/queue" 2>/dev/null || echo 0)
+            queue_depth=$(grep -c '[^[:space:]]' "${task_instance_dir}/queue" 2>/dev/null; true)
             if [[ $queue_depth -gt 0 ]]; then
                 local first_line
                 first_line=$(head -1 "${task_instance_dir}/queue")

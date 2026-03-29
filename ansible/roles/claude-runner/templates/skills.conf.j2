@@ -17,5 +17,5 @@ on_result.approved=notify_user "PR $PR approved, no changes needed"
 on_stuck=notify_user "review could not complete: $MESSAGE"
 
 [handle-pr-comments]
-on_success=notify_user "PR comments resolved"
-on_stuck=notify_user "could not resolve comments: $MESSAGE"
+on_success=resolve_watch pr=$PR
+on_stuck=notify_user "could not resolve PR $PR comments: $MESSAGE"

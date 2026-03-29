@@ -26,14 +26,30 @@ if [[ "$BRANCH" == "$BASE_BRANCH" ]]; then
     exit 1
 fi
 
+# Derive a human-readable PR title from the branch name:
+#   1. Strip leading <prefix>/ (e.g. "claude-runner/")
+#   2. Strip leading YYYY-MM-DD- date prefix
+#   3. Replace - and _ with spaces
+#   4. Capitalise first letter
+_derive_title() {
+    local branch="$1"
+    local slug="${branch#*/}"
+    slug=$(echo "$slug" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//')
+    slug="${slug//-/ }"
+    slug="${slug//_/ }"
+    echo "${slug^}"
+}
+
+TITLE="feat: $(_derive_title "$BRANCH")"
+
 cd "${REPO_PATH:?REPO_PATH not set}"
 
 git push -u origin "$BRANCH"
 
 tea pr create \
-    --title "feat: ${NAME}" \
+    --title "$TITLE" \
     --base "$BASE_BRANCH" \
     --head "$BRANCH" \
     --description "Automated implementation by claude-runner instance: ${NAME}"
 
-echo "PR created: branch=${BRANCH} base=${BASE_BRANCH}"
+echo "PR created: branch=${BRANCH} base=${BASE_BRANCH} title=${TITLE}"

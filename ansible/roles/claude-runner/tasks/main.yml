@@ -105,6 +105,23 @@
     mode: '0644'
   notify: reload systemd
 
+- name: Install watcher script
+  template:
+    src: watch.sh.j2
+    dest: "{{ claude_runner_base_dir }}/watch.sh"
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0755'
+
+- name: Install watcher systemd template unit
+  template:
+    src: claude-watcher@.service.j2
+    dest: /etc/systemd/system/claude-watcher@.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
 - name: Create actions directory
   file:
     path: "{{ claude_runner_base_dir }}/actions"
@@ -125,6 +142,7 @@
     - notify_user
     - post_gitea_comment
     - chain_skill
+    - resolve_watch
 
 - name: Install skills.conf
   template:

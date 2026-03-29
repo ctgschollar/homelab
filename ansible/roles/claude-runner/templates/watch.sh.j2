@@ -1,0 +1,156 @@
+#!/bin/bash
+# claude-watcher — poll a Gitea repo for PRs with changes requested
+# Managed by Ansible — do not edit directly.
+# Source: ansible/roles/claude-runner/templates/watch.sh.j2
+set -euo pipefail
+
+REPO_PATH="${1:?Usage: watch.sh <repo-path> <name>}"
+NAME="${2:?Usage: watch.sh <repo-path> <name>}"
+
+BASE_DIR="{{ claude_runner_base_dir }}"
+TASK_DIR="${BASE_DIR}/tasks/${NAME}"
+WATCH_DIR="${TASK_DIR}/watch"
+LOG_FILE="${BASE_DIR}/logs/${NAME}-watcher.log"
+
+mkdir -p "$WATCH_DIR"
+cd "${REPO_PATH}"
+
+{% raw %}
+log() {
+    echo "$(date -Iseconds) [watcher/${NAME}] $*" | tee -a "$LOG_FILE"
+}
+
+# Read a value from tea's config YAML (first login entry).
+_tea_config_val() {
+    local key="$1"
+    local tea_config="${HOME}/.config/tea/config.yml"
+    [[ -f "$tea_config" ]] || { echo ""; return; }
+    grep -A20 'logins:' "$tea_config" | grep "^\s*${key}:" | head -1 | sed "s/.*${key}:[[:space:]]*//"
+}
+
+# Extract owner/repo slug from git remote origin.
+_owner_repo() {
+    local remote
+    remote=$(git remote get-url origin)
+    echo "$remote" | sed -E 's|.*[:/]([^/]+/[^/]+)(\.git)?$|\1|'
+}
+
+log "Watcher started for: ${REPO_PATH}"
+
+while true; do
+    open_prs_json=$(tea pr list --state open --output json 2>/dev/null || echo '[]')
+    pr_count=$(echo "$open_prs_json" | jq 'length')
+    log "Polling: ${pr_count} open PR(s)"
+
+    GITEA_URL=$(_tea_config_val "url")
+    GITEA_TOKEN=$(_tea_config_val "token")
+    OWNER_REPO=$(_owner_repo)
+    OWNER="${OWNER_REPO%%/*}"
+    REPO_NAME="${OWNER_REPO#*/}"
+
+    if [[ -z "$GITEA_URL" || -z "$GITEA_TOKEN" ]]; then
+        log "ERROR: cannot read Gitea credentials from tea config — check ~/.config/tea/config.yml"
+        sleep 60
+        continue
+    fi
+
+    while read -r pr_num; do
+        [[ -z "$pr_num" ]] && continue
+
+        # Check lock first (cheapest check)
+        lock_file="${WATCH_DIR}/${pr_num}/lock"
+        if [[ -f "$lock_file" ]]; then
+            log "PR #${pr_num}: locked (runner processing), skipping"
+            continue
+        fi
+
+        # Fetch review state via Gitea API
+        reviews_json=$(curl -sf \
+            "${GITEA_URL}/api/v1/repos/${OWNER}/${REPO_NAME}/pulls/${pr_num}/reviews" \
+            -H "Authorization: token ${GITEA_TOKEN}" \
+            2>/dev/null || echo '[]')
+
+        changes_count=$(echo "$reviews_json" | jq '[.[] | select(.state == "REQUEST_CHANGES")] | length')
+        if [[ "$changes_count" -eq 0 ]]; then
+            log "PR #${pr_num}: no changes requested, skipping"
+            continue
+        fi
+
+        # Collect reviewers who requested changes
+        reviewers_json=$(echo "$reviews_json" | \
+            jq '[.[] | select(.state == "REQUEST_CHANGES") | .user.login]')
+
+        # Get PR branch name
+        pr_json=$(tea pr view "$pr_num" --output json 2>/dev/null || echo '{}')
+        pr_branch=$(echo "$pr_json" | jq -r '.head.ref // empty')
+
+        # Fetch all comments on the PR issue
+        comments_json=$(tea issue comment list "$pr_num" --output json 2>/dev/null || echo '[]')
+
+        # Read already-posted comment IDs (default to empty array)
+        posted_file="${WATCH_DIR}/${pr_num}/posted_comments.json"
+        posted_ids=$(cat "$posted_file" 2>/dev/null || echo '[]')
+
+        # Filter out already-posted comments; classify remainder
+        to_implement=$(echo "$comments_json" | jq --argjson posted "$posted_ids" '
+            [.[] |
+             select(.id as $id | $posted | map(. == $id) | any | not) |
+             select(.body | test("^question:"; "i") | not) |
+             {id: .id, author: .user.login, body: .body}]
+        ')
+        to_answer=$(echo "$comments_json" | jq --argjson posted "$posted_ids" '
+            [.[] |
+             select(.id as $id | $posted | map(. == $id) | any | not) |
+             select(.body | test("^question:"; "i")) |
+             {id: .id, author: .user.login, body: .body}]
+        ')
+
+        implement_count=$(echo "$to_implement" | jq 'length')
+        answer_count=$(echo "$to_answer" | jq 'length')
+
+        if [[ "$implement_count" -eq 0 && "$answer_count" -eq 0 ]]; then
+            log "PR #${pr_num}: no new comments to process"
+            continue
+        fi
+
+        log "PR #${pr_num}: ${implement_count} to implement, ${answer_count} to answer — queuing runner"
+
+        # Write details.json and create replied/ directory
+        mkdir -p "${WATCH_DIR}/${pr_num}/replied"
+        jq -n \
+            --argjson pr "$pr_num" \
+            --arg branch "$pr_branch" \
+            --arg captured_at "$(date -Iseconds)" \
+            --argjson reviewers_requested_changes "$reviewers_json" \
+            --argjson to_implement "$to_implement" \
+            --argjson to_answer "$to_answer" \
+            '{
+                pr: $pr,
+                branch: $branch,
+                captured_at: $captured_at,
+                reviewers_requested_changes: $reviewers_requested_changes,
+                to_implement: $to_implement,
+                to_answer: $to_answer
+            }' > "${WATCH_DIR}/${pr_num}/details.json"
+
+        # Create lock and queue the skill
+        touch "$lock_file"
+
+        queue_file="${TASK_DIR}/queue"
+        echo "handle-pr-comments pr=${pr_num}" >> "$queue_file"
+        chmod 664 "$queue_file"
+
+        # Clear done file if present (runner may have finished a previous queue)
+        rm -f "${TASK_DIR}/done"
+
+        # Start companion runner if not already active
+        if ! systemctl is-active --quiet "claude-runner@${NAME}.service" 2>/dev/null; then
+            systemctl start "claude-runner@${NAME}.service" 2>/dev/null || \
+                log "Warning: could not start claude-runner@${NAME} (may need sudoers rule)"
+        fi
+
+    done < <(echo "$open_prs_json" | jq -r '.[].number')
+
+    sleep 60
+done
+{% endraw %}

@@ -30,6 +30,9 @@ Commands:
   add-account <name> <config-dir>    Register a Claude account config dir
   remove-account <name>              Deregister a Claude account
   list-accounts                      Show all registered Claude accounts
+  add-watcher <name> <repo-path>     Start watching for <name>'s companion runner (runner must exist)
+  remove-watcher <name>              Stop and remove the watcher for <name>
+  list-watchers                      Show all registered watchers and their status
 
 Skills:
   implement  <name> <repo-path> spec=<path> [base=<branch>]
@@ -236,6 +239,57 @@ cmd_list_accounts() {
     done < "$ACCOUNTS_CONF"
 }
 
+cmd_add_watcher() {
+    local name="${1:?add-watcher requires a name}"
+    local repo_path="${2:-}"  # validated indirectly via companion runner's env file
+
+    # Companion runner must be registered
+    if ! grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
+        echo "Error: no runner instance named '${name}'. Register a runner with 'add skill' first." >&2
+        exit 1
+    fi
+
+    local env_file="${ENV_DIR}/${name}"
+    if [[ ! -f "$env_file" ]]; then
+        echo "Error: env file not found at ${env_file}" >&2
+        exit 1
+    fi
+
+    systemctl daemon-reload
+    systemctl enable "claude-watcher@${name}.service"
+    systemctl start "claude-watcher@${name}.service"
+    echo "Started claude-watcher@${name}"
+}
+
+cmd_remove_watcher() {
+    local name="${1:?remove-watcher requires a name}"
+
+    if systemctl is-active --quiet "claude-watcher@${name}.service" 2>/dev/null; then
+        systemctl stop "claude-watcher@${name}.service"
+    fi
+    systemctl disable "claude-watcher@${name}.service" 2>/dev/null || true
+    echo "Removed claude-watcher@${name}"
+}
+
+cmd_list_watchers() {
+    local found=0
+    printf "%-20s %-10s\n" "NAME" "STATUS"
+    printf "%-20s %-10s\n" "----" "------"
+
+    while IFS='=' read -r name _path; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        local svc="claude-watcher@${name}.service"
+        if systemctl list-unit-files "$svc" --no-legend 2>/dev/null | grep -q "$svc"; then
+            local status
+            status=$(systemctl is-active "$svc" 2>/dev/null || echo "inactive")
+            printf "%-20s %-10s\n" "$name" "$status"
+            found=1
+        fi
+    done < "$REPOS_CONF"
+
+    [[ $found -eq 0 ]] && echo "No watchers registered."
+}
+
 cmd_list_done() {
     local found=0
     printf "%-20s %s\n" "NAME" "SUMMARY"
@@ -405,6 +459,9 @@ case "${1:-}" in
     add-account)     shift; cmd_add_account "$@" ;;
     remove-account)  shift; cmd_remove_account "$@" ;;
     list-accounts)   cmd_list_accounts ;;
+    add-watcher)     shift; cmd_add_watcher "$@" ;;
+    remove-watcher)  shift; cmd_remove_watcher "$@" ;;
+    list-watchers)   cmd_list_watchers ;;
     *)               usage ;;
 esac
 {% endraw %}

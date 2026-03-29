@@ -21,6 +21,7 @@
       - nodejs
       - npm
       - expect
+      - git
     state: present
     update_cache: yes
 
@@ -33,16 +34,16 @@
   file:
     path: "{{ claude_runner_base_dir }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
 
 - name: Create env directory for per-instance repo configs
   file:
     path: "{{ claude_runner_base_dir }}/env"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
 
 - name: Create logs directory
@@ -65,8 +66,8 @@
   copy:
     content: ""
     dest: "{{ claude_runner_base_dir }}/accounts.conf"
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0644'
     force: no
 
@@ -74,8 +75,8 @@
   copy:
     src: repos.conf
     dest: "{{ claude_runner_base_dir }}/repos.conf"
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0644'
     force: no
 
@@ -83,8 +84,8 @@
   template:
     src: run.sh.j2
     dest: "{{ claude_runner_base_dir }}/run.sh"
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
 
 - name: Install claude-runner CLI
@@ -108,16 +109,16 @@
   file:
     path: "{{ claude_runner_base_dir }}/actions"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
 
 - name: Install action scripts
   copy:
     src: "actions/{{ item }}"
     dest: "{{ claude_runner_base_dir }}/actions/{{ item }}"
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0755'
   loop:
     - create_pr
@@ -129,8 +130,8 @@
   template:
     src: skills.conf.j2
     dest: "{{ claude_runner_base_dir }}/skills.conf"
-    owner: root
-    group: root
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
     mode: '0644'
 
 - name: Create claude commands directory

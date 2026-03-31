@@ -1,0 +1,32 @@
+---
+# ansible/roles/tools/tasks/install-act.yml
+
+- name: Set act architecture
+  set_fact:
+    _act_arch: "{{ 'x86_64' if ansible_architecture == 'x86_64' else ansible_architecture }}"
+
+- name: Get latest act release version
+  uri:
+    url: https://api.github.com/repos/nektos/act/releases/latest
+    return_content: yes
+  register: _act_release
+
+- name: Download act tarball
+  get_url:
+    url: "https://github.com/nektos/act/releases/download/{{ _act_release.json.tag_name }}/act_Linux_{{ _act_arch }}.tar.gz"
+    dest: /tmp/act.tar.gz
+    mode: '0644'
+    force: yes
+
+- name: Extract act binary
+  unarchive:
+    src: /tmp/act.tar.gz
+    dest: /usr/local/bin
+    include: [act]
+    remote_src: yes
+    mode: '0755'
+
+- name: Remove act tarball
+  file:
+    path: /tmp/act.tar.gz
+    state: absent

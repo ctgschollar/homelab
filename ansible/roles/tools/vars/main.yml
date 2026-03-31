@@ -48,3 +48,7 @@ tool_definitions:
   cloudflared:
     deps: [gnupg]
     tasks: install-cloudflared.yml
+
+  act:
+    deps: [curl]
+    tasks: install-act.yml

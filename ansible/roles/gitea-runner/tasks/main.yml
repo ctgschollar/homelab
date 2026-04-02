@@ -1,0 +1,58 @@
+---
+# ansible/roles/gitea-runner/tasks/main.yml
+
+- name: Create act-runner system user
+  user:
+    name: "{{ gitea_runner_user }}"
+    system: yes
+    shell: /usr/sbin/nologin
+    home: "{{ gitea_runner_base_dir }}"
+    create_home: yes
+    state: present
+
+- name: Add act-runner user to docker group
+  user:
+    name: "{{ gitea_runner_user }}"
+    groups: docker
+    append: yes
+
+- name: Create config directory
+  file:
+    path: "{{ gitea_runner_config_dir }}"
+    state: directory
+    owner: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_user }}"
+    mode: '0750'
+
+- name: Install act_runner binary
+  import_tasks: install-act-runner.yml
+
+- name: Template act_runner config
+  template:
+    src: config.yaml.j2
+    dest: "{{ gitea_runner_config_dir }}/config.yaml"
+    owner: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_user }}"
+    mode: '0640'
+  notify: restart act-runner
+
+- name: Register runner
+  import_tasks: register.yml
+
+- name: Install systemd service
+  template:
+    src: act-runner.service.j2
+    dest: /etc/systemd/system/act-runner.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart act-runner
+
+- name: Enable and start act-runner service
+  systemd:
+    name: act-runner
+    enabled: yes
+    state: started
+    daemon_reload: yes

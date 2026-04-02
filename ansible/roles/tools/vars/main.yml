@@ -52,3 +52,7 @@ tool_definitions:
   act:
     deps: [curl]
     tasks: install-act.yml
+
+  docker:
+    deps: [gnupg, curl]
+    tasks: install-docker.yml

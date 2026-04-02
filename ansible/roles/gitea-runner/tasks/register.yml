@@ -1,0 +1,34 @@
+---
+# ansible/roles/gitea-runner/tasks/register.yml
+# Registration is idempotent: skipped if .runner state file already exists.
+
+- name: Check if runner is already registered
+  stat:
+    path: "{{ gitea_runner_base_dir }}/.runner"
+  register: _runner_state
+
+- name: Read registration token
+  slurp:
+    src: "{{ gitea_runner_token_file }}"
+  register: _runner_token
+  when: not _runner_state.stat.exists
+
+- name: Register runner with Gitea
+  command: >
+    /usr/local/bin/act_runner register
+    --no-interactive
+    --instance {{ gitea_instance_url }}
+    --token {{ _runner_token.content | b64decode | trim }}
+    --name {{ gitea_runner_name }}
+    --labels {{ gitea_runner_labels }}
+    --config {{ gitea_runner_config_dir }}/config.yaml
+  args:
+    chdir: "{{ gitea_runner_base_dir }}"
+  when: not _runner_state.stat.exists
+
+- name: Set ownership of runner state file
+  file:
+    path: "{{ gitea_runner_base_dir }}/.runner"
+    owner: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_user }}"
+  when: not _runner_state.stat.exists

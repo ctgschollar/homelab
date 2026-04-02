@@ -1,0 +1,11 @@
+---
+# ansible/roles/gitea-runner/handlers/main.yml
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart act-runner
+  systemd:
+    name: act-runner
+    state: restarted

@@ -5,7 +5,7 @@
 
 all:
   children:
-    docker_swarm_nodes:
+    proxmox_vms: 
       hosts:
         dks01:
           ansible_host: dks01.schollar.dev
@@ -17,24 +17,12 @@ all:
           ansible_host: dks04.schollar.dev
         dks05:
           ansible_host: dks05.schollar.dev
-      vars:
-        ansible_user: root
-        ansible_python_interpreter: /usr/bin/python3
-        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
-
-    other_nodes:
-      hosts:
         claude:
           ansible_host: 192.168.3.79
-      vars:
-        ansible_user: root
-        ansible_python_interpreter: /usr/bin/python3
-        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
-    
-    edge_nodes:
-      hosts:
         edge01:
           ansible_host: 192.168.3.91
+        gt-runner-01:
+          ansible_host: 192.168.3.100
       vars:
         ansible_user: root
         ansible_python_interpreter: /usr/bin/python3

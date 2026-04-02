@@ -1,0 +1,19 @@
+---
+# ansible/roles/gitea-runner/defaults/main.yml
+
+gitea_runner_user: act-runner
+gitea_runner_base_dir: /opt/act-runner
+gitea_runner_config_dir: /etc/gitea-runner
+
+# Token file placed manually on the host before running this playbook.
+# See README.md for instructions.
+gitea_runner_token_file: /etc/gitea-runner/runner-token
+
+gitea_instance_url: https://gitea.schollar.dev
+
+# Runner identity
+gitea_runner_name: "{{ inventory_hostname }}"
+gitea_runner_labels: "debian-latest:host,native:host"
+
+# act_runner binary version — check https://dl.gitea.com/act_runner/
+gitea_act_runner_version: "0.2.11"

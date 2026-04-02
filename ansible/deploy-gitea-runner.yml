@@ -1,10 +1,10 @@
 ---
-- name: Deploy edge node services
-  hosts: edge_nodes
+- name: Deploy Gitea act runner
+  hosts: gt-runner-01 
   become: true
 
   vars:
-    required_tools: [cloudflared]
+    required_tools: [docker]
 
   pre_tasks:
     - name: Install required tools
@@ -12,5 +12,4 @@
         name: tools
 
   roles:
-    - cloudflared
-    - traefik-edge
+    - gitea-runner

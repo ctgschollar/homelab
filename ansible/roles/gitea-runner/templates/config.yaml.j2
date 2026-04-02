@@ -1,0 +1,21 @@
+# Managed by Ansible — do not edit manually
+log:
+  level: info
+
+runner:
+  capacity: 1
+  envs: {}
+  timeout: 3h
+  insecure: false
+
+cache:
+  enabled: false
+
+container:
+  network: host
+  privileged: false
+  options:
+  workdir_parent:
+
+host:
+  workdir_parent:

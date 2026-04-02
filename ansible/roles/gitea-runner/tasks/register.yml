@@ -24,5 +24,11 @@
     --config {{ gitea_runner_config_dir }}/config.yaml
   args:
     chdir: "{{ gitea_runner_base_dir }}"
-  become_user: "{{ gitea_runner_user }}"
+  when: not _runner_state.stat.exists
+
+- name: Set ownership of runner state file
+  file:
+    path: "{{ gitea_runner_base_dir }}/.runner"
+    owner: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_user }}"
   when: not _runner_state.stat.exists

@@ -8,7 +8,7 @@
 - name: Download act_runner binary
   get_url:
     url: >-
-      https://gitea.com/gitea/act_runner/releases/download/v{{ gitea_act_runner_version }}/act_runner-{{ gitea_act_runner_version }}-linux-{{ _act_runner_arch }}
+      https://dl.gitea.com/act_runner/{{ gitea_act_runner_version }}/act_runner-{{ gitea_act_runner_version }}-linux-{{ _act_runner_arch }}
     dest: /usr/local/bin/act_runner
     mode: '0755'
     force: yes

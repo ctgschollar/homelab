@@ -15,5 +15,5 @@ gitea_instance_url: https://gitea.schollar.dev
 gitea_runner_name: "{{ inventory_hostname }}"
 gitea_runner_labels: "debian-latest:host,native:host"
 
-# act_runner binary version — check https://gitea.com/gitea/act_runner/releases
+# act_runner binary version — check https://dl.gitea.com/act_runner/
 gitea_act_runner_version: "0.2.11"

@@ -1,6 +1,6 @@
 ---
 - name: Deploy Gitea act runner
-  hosts: gitea_runners
+  hosts: gt-runner-01 
   become: true
 
   vars:

@@ -13,7 +13,7 @@ gitea_instance_url: https://gitea.schollar.dev
 
 # Runner identity
 gitea_runner_name: "{{ inventory_hostname }}"
-gitea_runner_labels: "debian-latest:host,native:host"
+gitea_runner_labels: "debian-latest:host,ubuntu-22.04:host"
 
 # act_runner binary version — check https://dl.gitea.com/act_runner/
 gitea_act_runner_version: "0.2.11"

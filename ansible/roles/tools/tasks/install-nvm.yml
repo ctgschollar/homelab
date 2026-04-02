@@ -1,0 +1,30 @@
+---
+# ansible/roles/tools/tasks/install-nvm.yml
+# Installs nvm system-wide to /opt/nvm with a profile.d loader.
+
+- name: Get latest nvm release version
+  uri:
+    url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
+    return_content: yes
+  register: _nvm_release
+
+- name: Create NVM_DIR
+  file:
+    path: /opt/nvm
+    state: directory
+    mode: '0755'
+
+- name: Download and install nvm
+  shell: >
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ _nvm_release.json.tag_name }}/install.sh | NVM_DIR=/opt/nvm bash
+  args:
+    creates: /opt/nvm/nvm.sh
+
+- name: Install profile.d loader for nvm
+  copy:
+    dest: /etc/profile.d/nvm.sh
+    mode: '0644'
+    content: |
+      export NVM_DIR=/opt/nvm
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/alias/default" ] && export PATH="$NVM_DIR/versions/node/$(cat $NVM_DIR/alias/default)/bin:$PATH"

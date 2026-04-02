@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    required_tools: [docker]
+    required_tools: [docker, node, make, hatch, git]
 
   pre_tasks:
     - name: Install required tools

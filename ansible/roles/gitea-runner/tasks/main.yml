@@ -24,6 +24,28 @@
     group: "{{ gitea_runner_user }}"
     mode: '0750'
 
+- name: Symlink /opt/nvm into act-runner home for Makefile compatibility
+  file:
+    src: /opt/nvm
+    dest: "{{ gitea_runner_base_dir }}/.nvm"
+    state: link
+
+- name: Symlink node/npm/npx into /usr/local/bin for CI jobs
+  shell: >
+    NVM_DIR=/opt/nvm bash -c '. /opt/nvm/nvm.sh && for bin in node npm npx; do ln -sf $(which $bin) /usr/local/bin/$bin; done'
+  args:
+    creates: /usr/local/bin/node
+
+- name: Symlink hatch into /usr/local/bin for CI jobs
+  shell: ln -sf $(which hatch) /usr/local/bin/hatch
+  args:
+    creates: /usr/local/bin/hatch
+
+- name: Symlink git into /usr/local/bin for CI jobs
+  shell: ln -sf $(which git) /usr/local/bin/git
+  args:
+    creates: /usr/local/bin/git
+
 - name: Install act_runner binary
   import_tasks: install-act-runner.yml
 

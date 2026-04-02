@@ -56,3 +56,15 @@ tool_definitions:
   docker:
     deps: [gnupg, curl]
     tasks: install-docker.yml
+
+  nvm:
+    deps: [curl]
+    tasks: install-nvm.yml
+
+  node:
+    deps: [nvm]
+    tasks: install-node.yml
+
+  make:
+    apt: [make]
+    deps: []

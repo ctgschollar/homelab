@@ -1,0 +1,9 @@
+---
+# ansible/roles/tools/tasks/install-node.yml
+# Installs the latest LTS Node.js via nvm.
+
+- name: Install latest LTS Node.js via nvm
+  shell: >
+    NVM_DIR=/opt/nvm bash -c '. /opt/nvm/nvm.sh && nvm install --lts'
+  args:
+    creates: /opt/nvm/alias/default

@@ -1,0 +1,49 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Docker container logs via Docker daemon socket
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: status
+            values: [running]
+    relabel_configs:
+      # Drop containers with no swarm service label (bare docker run, etc.)
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        action: drop
+        regex: ^$
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        target_label: swarm_service
+      - source_labels: [__meta_docker_container_name]
+        regex: /(.*)
+        target_label: container_name
+        replacement: $1
+      - source_labels: [__meta_docker_container_label_com_docker_stack_namespace]
+        target_label: stack
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_node_hostname]
+        target_label: swarm_node
+    pipeline_stages:
+      - docker: {}
+
+  # Systemd journal on the host
+  - job_name: journal
+    journal:
+      path: /run/log/journal
+      max_age: 12h
+      labels:
+        job: swarm-node
+    relabel_configs:
+      - source_labels: [__journal__hostname]
+        target_label: host
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit

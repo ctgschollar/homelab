@@ -3,6 +3,8 @@ version: "3.8"
 networks:
   traefik-net:
     external: true
+  logging-net:
+    external: true
 
 volumes:
   prometheus-data:
@@ -14,6 +16,8 @@ configs:
     file: ./prometheus.yml
   grafana-datasource-prometheus.yml:
     file: ./provisioning/datasources/prometheus.yml
+  grafana-datasource-loki.yml:
+    file: ./provisioning/datasources/loki.yml
   grafana-dashboards-provider.yml:
     file: ./provisioning/dashboards/provider.yml
 
@@ -74,12 +78,14 @@ services:
     configs:
       - source: grafana-datasource-prometheus.yml
         target: /etc/grafana/provisioning/datasources/prometheus.yml
+      - source: grafana-datasource-loki.yml
+        target: /etc/grafana/provisioning/datasources/loki.yml
       - source: grafana-dashboards-provider.yml
         target: /etc/grafana/provisioning/dashboards/provider.yml
     volumes:
       - grafana-data:/var/lib/grafana
       - grafana-dashboards:/var/lib/grafana/dashboards
-    networks: [traefik-net]
+    networks: [traefik-net, logging-net]
     deploy:
       mode: replicated
       replicas: 1

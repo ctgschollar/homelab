@@ -1,0 +1,69 @@
+networks:
+  logging-net:
+    external: true
+
+volumes:
+  loki-data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "30G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_hdd"
+
+configs:
+  loki-config.yml:
+    file: ./loki-config.yml
+  promtail-config.yml:
+    file: ./promtail-config.yml
+
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    command: -config.file=/etc/loki/config.yml
+    configs:
+      - source: loki-config.yml
+        target: /etc/loki/config.yml
+    volumes:
+      - loki-data:/loki
+    networks: [logging-net]
+    ports:
+      - "3100:3100"
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+          - "node.hostname!=dks05"
+      update_config:
+        order: start-first
+        parallelism: 1
+        failure_action: rollback
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    command: -config.file=/etc/promtail/config.yml
+    configs:
+      - source: promtail-config.yml
+        target: /etc/promtail/config.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    networks: [logging-net]
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      update_config:
+        order: start-first
+        parallelism: 1
+        failure_action: rollback

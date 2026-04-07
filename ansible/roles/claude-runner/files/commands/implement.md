@@ -39,7 +39,8 @@ When `step=2`:
 
 1. Find the plan file: look in `docs/superpowers/plans/` for the `.md` file matching the spec basename (e.g. spec `2026-03-28-foo-design.md` → plan `2026-03-28-foo.md`)
 2. Use the `superpowers:executing-plans` skill to execute **all tasks** in the plan
-3. After all tasks are complete, write result.json:
+3. **Do not push or create a PR** — the runner handles this via its `create_pr` hook after the skill completes. If `finishing-a-development-branch` or any other skill attempts to create a PR, skip that step.
+4. After all tasks are complete, write result.json:
    ```json
    {"status": "done", "outcome": "all_steps_complete", "message": "All plan tasks implemented"}
    ```

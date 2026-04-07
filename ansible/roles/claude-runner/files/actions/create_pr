@@ -22,8 +22,16 @@ fi
 BRANCH=$(cat "$BRANCH_FILE")
 
 if [[ "$BRANCH" == "$BASE_BRANCH" ]]; then
-    echo "create_pr: head branch equals base branch (${BRANCH}). Did you mean to use base=main?" >&2
-    exit 1
+    CURRENT=$(git -C "${REPO_PATH:?REPO_PATH not set}" rev-parse --abbrev-ref HEAD)
+    if [[ "$CURRENT" != "$BRANCH" ]]; then
+        # We're on the wrong branch (e.g. runner never checked out the feature branch).
+        # Create it now from current HEAD, push it, and PR into base.
+        echo "create_pr: head==base (${BRANCH}) but current branch is ${CURRENT} — creating ${BRANCH} from ${CURRENT}"
+        git -C "$REPO_PATH" checkout -B "$BRANCH"
+    else
+        echo "create_pr: head branch equals base branch (${BRANCH}). Did you mean to use base=main?" >&2
+        exit 1
+    fi
 fi
 
 # Derive a human-readable PR title from the branch name:

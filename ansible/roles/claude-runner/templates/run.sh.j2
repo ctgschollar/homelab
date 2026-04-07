@@ -152,6 +152,14 @@ while true; do
     BASE=$(cat "$BASE_FILE")
     export STATUS="" OUTCOME="" MESSAGE="" STEP TOTAL NAME REPO_PATH REPO BASE_DIR CLAUDE_RUNNER_BASE_DIR BASE
 
+    # On step 1, check out the working branch so Claude starts on the right branch.
+    # This is done here (not in the skill) to ensure it always happens reliably,
+    # and after BASE is resolved so base=current captures the pre-checkout branch.
+    if [[ "$STEP" -eq 1 ]]; then
+        echo "$(date -Iseconds) Checking out branch: ${BRANCH}" | tee -a "$LOG_FILE"
+        git checkout -B "$BRANCH"
+    fi
+
     # Remove stale result.json from previous invocation
     rm -f "$RESULT_FILE"
 

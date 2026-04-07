@@ -129,6 +129,24 @@ while true; do
     fi
     BRANCH=$(cat "$BRANCH_FILE")
 
+    # On step 1, check if a PR already exists for this branch — if so, skip the skill.
+    if [[ "$STEP" -eq 1 ]]; then
+        _existing_pr=$(tea pr list --state all --output json 2>/dev/null \
+            | jq -re --arg b "$BRANCH" '.[] | select(.head == $b or (.head | endswith(":"+$b))) | .index' \
+            | head -1 || true)
+        if [[ -n "$_existing_pr" ]]; then
+            echo "$(date -Iseconds) PR #${_existing_pr} already exists for ${BRANCH} — skipping skill." | tee -a "$LOG_FILE"
+            (flock -x 200; sed -i '1d' "$QUEUE_FILE") 200>"${QUEUE_FILE}.lock"
+            rm -f "$STEP_FILE" "$TOTAL_FILE" "$BRANCH_FILE" "$BASE_FILE"
+            if ! grep -q '[^[:space:]]' "$QUEUE_FILE" 2>/dev/null; then
+                echo "$(date -Iseconds) All skills in queue complete." | tee -a "$LOG_FILE"
+                echo "All queued skills complete." > "$DONE_FILE"
+                exit 0
+            fi
+            continue
+        fi
+    fi
+
     # Export SKILL_ARGS key=value pairs as uppercase env vars for hook dispatch
     while IFS='=' read -r k v; do
         [[ -z "$k" ]] && continue

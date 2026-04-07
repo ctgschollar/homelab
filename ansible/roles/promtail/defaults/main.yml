@@ -1,0 +1,4 @@
+---
+promtail_version: "3.0.0"
+promtail_loki_url: "http://dks01.schollar.dev:3100"
+promtail_extra_paths: []

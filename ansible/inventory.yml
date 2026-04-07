@@ -5,7 +5,7 @@
 
 all:
   children:
-    proxmox_vms: 
+    proxmox_vms:
       hosts:
         dks01:
           ansible_host: dks01.schollar.dev
@@ -23,6 +23,31 @@ all:
           ansible_host: 192.168.3.91
         gt-runner-01:
           ansible_host: 192.168.3.100
+      vars:
+        ansible_user: root
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
+
+    swarm_nodes:
+      hosts:
+        dks01:
+        dks02:
+        dks03:
+        dks04:
+        dks05:
+
+    proxmox_nodes:
+      hosts:
+        prx01:
+          ansible_host: prx01.schollar.dev
+        prx02:
+          ansible_host: prx02.schollar.dev
+        prx03:
+          ansible_host: prx03.schollar.dev
+        prx04:
+          ansible_host: prx04.schollar.dev
+        prx05:
+          ansible_host: prx05.schollar.dev
       vars:
         ansible_user: root
         ansible_python_interpreter: /usr/bin/python3

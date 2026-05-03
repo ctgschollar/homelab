@@ -33,6 +33,14 @@ _SHELL_FORCE_TIER3: list[re.Pattern] = [
     re.compile(r'\bshred\b'),
     re.compile(r'\btruncate\b'),
     re.compile(r'>\s*/dev/'),
+    # Package/software installation — never act autonomously on a failing system
+    re.compile(r'\bapt(-get)?\s+(install|remove|purge|autoremove|dist-upgrade|full-upgrade)\b'),
+    re.compile(r'\bdpkg\b.*(-i\b|--install|--remove|--purge)\b'),
+    re.compile(r'\byum\s+(install|remove|erase|update|upgrade)\b'),
+    re.compile(r'\bdnf\s+(install|remove|erase|update|upgrade)\b'),
+    re.compile(r'\bpip[0-9]?\s+install\b'),
+    re.compile(r'\bpipx\s+(install|upgrade|uninstall)\b'),
+    re.compile(r'\bsnap\s+(install|remove|refresh)\b'),
 ]
 
 _SHELL_FORCE_TIER2: list[re.Pattern] = [

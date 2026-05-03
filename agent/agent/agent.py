@@ -201,6 +201,7 @@ def build_approval_app(
     pending: PendingApprovals,
     slack: "SlackClient",
     event_queue: asyncio.Queue | None = None,
+    controller: Any = None,
 ) -> FastAPI:  # type: ignore[name-defined]  # noqa: F821
     app = FastAPI()
 
@@ -227,12 +228,16 @@ def build_approval_app(
             if event.get("type") == "message" and not event.get("bot_id") and not event.get("subtype"):
                 text = event.get("text", "").strip()
                 if text and event_queue is not None:
-                    await event_queue.put({
-                        "source": "slack",
-                        "type": "user_message",
-                        "data": {"message": text},
-                        "timestamp": datetime.now(timezone.utc),
-                    })
+                    if controller is not None and controller.is_command(text):
+                        response = await controller.handle_command(text)
+                        await slack.notify(response)
+                    else:
+                        await event_queue.put({
+                            "source": "slack",
+                            "type": "user_message",
+                            "data": {"message": text},
+                            "timestamp": datetime.now(timezone.utc),
+                        })
 
         return Response(content="", status_code=200)
 
@@ -259,10 +264,43 @@ def build_approval_app(
         if interaction_type == "block_actions":
             for action in payload.get("actions", []):
                 action_id = action.get("action_id")
-                plan_id = action.get("value", "")
-                if action_id not in ("plan_approve", "plan_deny"):
+                value = action.get("value", "")
+
+                # --- Deferred alert buttons ---
+                if action_id == "alert_start":
+                    if controller is not None:
+                        await controller.start_alert(value)
+                    return Response(content="", status_code=200)
+
+                if action_id == "alert_ignore":
+                    if controller is not None:
+                        await controller.ignore_alert(value)
+                    return Response(content="", status_code=200)
+
+                # --- Plan approval buttons ---
+                if action_id not in ("plan_approve", "plan_deny", "plan_approve_whitelist"):
                     continue
 
+                if action_id == "plan_approve_whitelist":
+                    data = json.loads(value) if value else {}
+                    plan_id = data.get("plan_id", "")
+                    command = data.get("command", "")
+                    if command and controller is not None:
+                        await controller.add_to_whitelist(command)
+                    channel = payload.get("channel", {}).get("id", "")
+                    ts = payload.get("message", {}).get("ts", "")
+                    user = payload.get("user", {}).get("name", "slack")
+                    if channel and ts:
+                        plan_text = ""
+                        for block in payload.get("message", {}).get("blocks", []):
+                            if block.get("type") == "section":
+                                plan_text = block.get("text", {}).get("text", "")
+                                break
+                        await slack.resolve_plan_message(channel, ts, plan_id, plan_text, True, "", user)
+                    pending.resolve(plan_id, True, reason="")
+                    return Response(content="", status_code=200)
+
+                plan_id = value
                 approved = action_id == "plan_approve"
 
                 # Find the plan_text from the original message for the modal
@@ -821,9 +859,10 @@ class HomelabAgent:
         host: str,
         port: int,
         event_queue: asyncio.Queue | None = None,
+        controller: Any = None,
     ) -> tuple[asyncio.Task, uvicorn.Server]:
         host = _resolve_listener_host(host, self._slack.signature_verification_enabled)
-        app = build_approval_app(self._pending, self._slack, event_queue)
+        app = build_approval_app(self._pending, self._slack, event_queue, controller)
         server_config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         server = uvicorn.Server(server_config)
 

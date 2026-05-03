@@ -69,6 +69,10 @@ async def list_sessions() -> list[Session]:
 
 
 async def update_session(name: str, **kwargs) -> Optional[Session]:
+    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "updated_at"}
+    unknown = set(kwargs.keys()) - ALLOWED_FIELDS
+    if unknown:
+        raise ValueError(f"Cannot update fields: {unknown}")
     if not kwargs:
         return await get_session(name)
     kwargs["updated_at"] = _now()

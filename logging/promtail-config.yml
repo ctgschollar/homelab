@@ -17,6 +17,7 @@ scrape_configs:
         filters:
           - name: status
             values: [running]
+        tail_from_end: true
     relabel_configs:
       # Drop containers with no swarm service label (bare docker run, etc.)
       - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]

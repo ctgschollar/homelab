@@ -37,6 +37,11 @@ ansible:
 
 monitor:
   poll_interval: 30
+  grace_period_seconds: 600
+
+controller:
+  mode: "monitor"
+  whitelist_path: "./whitelist.json"
 
 # -----------------------------------------------------------------------
 # Safety policy

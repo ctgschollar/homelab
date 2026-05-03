@@ -149,7 +149,7 @@ def test_resolve_tier_git_push_forces_tier2() -> None:
         agent_proposed_tier=1,
         command="git push origin main",
     )
-    assert resolved.tier == 2
+    assert resolved.tier == 3  # was 2 — tier-2 collapsed to tier-3 for run_shell
 
 
 def test_resolve_tier_read_only_passthrough() -> None:
@@ -169,7 +169,7 @@ def test_resolve_tier_git_push_tier2_stays_tier2() -> None:
         agent_proposed_tier=2,
         command="git push origin main",
     )
-    assert resolved.tier == 2
+    assert resolved.tier == 3  # was 2 — tier-2 collapsed to tier-3 for run_shell
 
 
 def test_resolve_tier_config_pattern_force_tier3() -> None:
@@ -189,7 +189,7 @@ def test_resolve_tier_config_pattern_force_tier2() -> None:
         agent_proposed_tier=1,
         command="my-deploy.sh",
     )
-    assert resolved.tier == 2
+    assert resolved.tier == 3  # tier-2 collapsed to tier-3 for run_shell
 
 
 def test_resolve_tier_override_reason_logged_on_guard_fire() -> None:
@@ -282,3 +282,52 @@ def test_resolve_tier_non_shell_tool_unaffected() -> None:
     resolved = policy.resolve_tier(tool_name="read_file")
     assert resolved.tier == 1
     assert resolved.guard_matched_list is None
+
+
+# --- run_shell tier-2 collapse ---
+
+def test_run_shell_agent_tier2_collapsed_to_tier3() -> None:
+    """Agent proposing tier 2 for run_shell must be escalated to tier 3."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=2,
+        agent_reasoning="moderate risk",
+        command="df -h",
+    )
+    assert resolved.tier == 3
+
+
+def test_run_shell_agent_tier1_preserved() -> None:
+    """Agent proposing tier 1 for a read-only command stays tier 1."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        agent_reasoning="read-only",
+        command="df -h",
+    )
+    assert resolved.tier == 1
+
+
+def test_run_shell_agent_no_tier_defaults_to_tier3() -> None:
+    """When agent omits tier, default is 3 (was 2 before fix)."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=None,
+        agent_reasoning=None,
+        command="df -h",
+    )
+    assert resolved.tier == 3
+
+
+def test_run_shell_tier2_pattern_match_becomes_tier3() -> None:
+    """A command matching a tier-2 pattern (git push) resolves to tier 3, not tier 2."""
+    policy = make_policy()
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        command="git push origin main",
+    )
+    assert resolved.tier == 3

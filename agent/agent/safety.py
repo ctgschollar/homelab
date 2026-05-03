@@ -131,10 +131,12 @@ class SafetyPolicy:
             if configured in (1, 2, 3):
                 return int(configured)
             if configured == "agent":
-                # Agent discretion — apply pattern guards for run_shell
                 if tool_name == "run_shell" and agent_proposed_tier is not None and command is not None:
-                    return self._check_shell_command(command, agent_proposed_tier)
-                return agent_proposed_tier if agent_proposed_tier is not None else 2
+                    tier = self._check_shell_command(command, agent_proposed_tier)
+                    # Only tier 1 (read-only) or tier 3 (explicit approval).
+                    # Tier 2 veto windows are never appropriate for shell commands.
+                    return 1 if tier == 1 else 3
+                return agent_proposed_tier if agent_proposed_tier is not None else 3
 
         return _DEFAULT_TIERS.get(tool_name, 2)
 

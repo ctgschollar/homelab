@@ -17,7 +17,6 @@ scrape_configs:
         filters:
           - name: status
             values: [running]
-        tail_from_end: true
     relabel_configs:
       # Drop containers with no swarm service label (bare docker run, etc.)
       - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
@@ -35,6 +34,9 @@ scrape_configs:
         target_label: swarm_node
     pipeline_stages:
       - docker: {}
+      - drop:
+          older_than: 168h
+          drop_counter_reason: entry_too_old
 
   # Systemd journal on the host
   - job_name: journal

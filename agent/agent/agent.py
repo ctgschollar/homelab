@@ -647,7 +647,13 @@ class HomelabAgent:
         plan_text = self._format_plan(block.name, tool_input)
         veto_seconds = self._veto_window if resolved.tier == 2 else None
 
-        message_ref = await self._slack.notify_plan(plan_id, plan_text, veto_seconds)
+        message_ref = await self._slack.notify_plan(
+            plan_id,
+            plan_text,
+            veto_seconds,
+            tool_name=block.name,
+            command=tool_input.get("command", ""),
+        )
         await self._logger.log_plan_proposed(
             plan_id=plan_id,
             tool=block.name,

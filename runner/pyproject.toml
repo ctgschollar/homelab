@@ -35,3 +35,6 @@ packages = ["runner"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.hatch.publish.index]
+url = "https://gitea.schollar.dev/api/packages/chris/pypi"

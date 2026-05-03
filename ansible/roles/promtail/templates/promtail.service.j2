@@ -1,0 +1,13 @@
+{# ansible/roles/promtail/templates/promtail.service.j2 #}
+[Unit]
+Description=Promtail log shipper
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/config.yml
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

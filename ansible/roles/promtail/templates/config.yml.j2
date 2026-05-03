@@ -1,0 +1,36 @@
+{# ansible/roles/promtail/templates/config.yml.j2 #}
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: {{ promtail_loki_url }}/loki/api/v1/push
+
+scrape_configs:
+  - job_name: journal
+    journal:
+      max_age: 12h
+      labels:
+        job: ansible-host
+    relabel_configs:
+      - source_labels: [__journal__hostname]
+        target_label: host
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit
+{% if promtail_extra_paths %}
+{% for path in promtail_extra_paths %}
+
+  - job_name: files_{{ loop.index }}
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ansible-host
+          host: {{ ansible_hostname }}
+          filename: {{ path | basename }}
+          __path__: {{ path }}
+{% endfor %}
+{% endif %}

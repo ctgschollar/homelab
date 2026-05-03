@@ -53,6 +53,12 @@ class AnsibleConfig(BaseModel):
 
 class MonitorConfig(BaseModel):
     poll_interval: int
+    grace_period_seconds: int = 600
+
+
+class ControllerConfig(BaseModel):
+    mode: Literal["monitor", "act"] = "monitor"
+    whitelist_path: str = "./whitelist.json"
 
 
 class SafeModeResourcesConfig(BaseModel):
@@ -135,6 +141,7 @@ class AgentConfig(BaseSettings):
     edge: EdgeConfig = EdgeConfig()
     ansible: AnsibleConfig
     monitor: MonitorConfig
+    controller: ControllerConfig = Field(default_factory=ControllerConfig)
     safety: SafetyConfig
     rag: RagConfig = Field(default_factory=RagConfig)
     action_log: ActionLogConfig

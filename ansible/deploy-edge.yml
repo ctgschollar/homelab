@@ -14,3 +14,4 @@
   roles:
     - cloudflared
     - traefik-edge
+    - promtail

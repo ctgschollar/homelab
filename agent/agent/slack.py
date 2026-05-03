@@ -97,12 +97,42 @@ class SlackClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _plan_blocks(plan_id: str, plan_text: str, veto_seconds: int | None) -> list:
+    def _plan_blocks(
+        plan_id: str,
+        plan_text: str,
+        veto_seconds: int | None,
+        tool_name: str = "",
+        command: str = "",
+    ) -> list:
         timeout_note = (
             f"\n_Auto-cancels in {veto_seconds}s if no response._"
             if veto_seconds is not None
             else "\n_Waiting indefinitely for explicit approval._"
         )
+        approve_elements: list[dict] = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "✅ Approve"},
+                "style": "primary",
+                "action_id": "plan_approve",
+                "value": plan_id,
+            },
+        ]
+        if tool_name == "run_shell" and command:
+            approve_elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "✅ Approve + Whitelist"},
+                "style": "primary",
+                "action_id": "plan_approve_whitelist",
+                "value": json.dumps({"plan_id": plan_id, "command": command}),
+            })
+        approve_elements.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "❌ Deny"},
+            "style": "danger",
+            "action_id": "plan_deny",
+            "value": plan_id,
+        })
         return [
             {
                 "type": "header",
@@ -115,22 +145,7 @@ class SlackClient:
             {"type": "divider"},
             {
                 "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Approve"},
-                        "style": "primary",
-                        "action_id": "plan_approve",
-                        "value": plan_id,
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "❌ Deny"},
-                        "style": "danger",
-                        "action_id": "plan_deny",
-                        "value": plan_id,
-                    },
-                ],
+                "elements": approve_elements,
             },
         ]
 
@@ -202,10 +217,57 @@ class SlackClient:
         plan_id: str,
         plan_text: str,
         veto_seconds: int | None,
+        tool_name: str = "",
+        command: str = "",
     ) -> tuple[str, str] | None:
         """Post the plan message. Returns (channel_id, ts) for later updates."""
-        blocks = self._plan_blocks(plan_id, plan_text, veto_seconds)
+        blocks = self._plan_blocks(plan_id, plan_text, veto_seconds, tool_name, command)
         result = await self._post_message(blocks, text=f"Plan proposed: {plan_id}")
+        channel = result.get("channel")
+        ts = result.get("ts")
+        if channel and ts:
+            return channel, ts
+        return None
+
+    async def notify_deferred_alert(
+        self,
+        alert_id: str,
+        services: list[str],
+        grace_seconds: int,
+    ) -> tuple[str, str] | None:
+        """Post a grace-period alert with [Start Now] / [Ignore] buttons."""
+        minutes = grace_seconds // 60
+        service_list = ", ".join(f"`{s}`" for s in services)
+        text = (
+            f"⚠️ *{len(services)} service(s) degraded:* {service_list}\n"
+            f"Starting investigation in {minutes} minute(s). Act now or ignore?"
+        )
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "▶ Start Now"},
+                        "style": "primary",
+                        "action_id": "alert_start",
+                        "value": alert_id,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✖ Ignore"},
+                        "style": "danger",
+                        "action_id": "alert_ignore",
+                        "value": alert_id,
+                    },
+                ],
+            },
+        ]
+        result = await self._post_message(blocks, text=f"Service alert: {alert_id}")
         channel = result.get("channel")
         ts = result.get("ts")
         if channel and ts:

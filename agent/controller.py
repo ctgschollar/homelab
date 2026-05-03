@@ -1,0 +1,306 @@
+# controller.py
+from __future__ import annotations
+
+import asyncio
+import json
+import secrets
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+import yaml
+from rich.console import Console
+
+from agent_base import AgentBase
+
+if TYPE_CHECKING:
+    from agent.agent.config_schema import AgentConfig
+    from agent.agent.rag import IncidentRAG
+    from agent.agent.slack import SlackClient
+
+console = Console()
+
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act"])
+
+
+@dataclass
+class DeferredAlert:
+    alert_id: str
+    event: dict
+    services: list[str]
+    timer_task: asyncio.Task
+    slack_message_ref: tuple[str, str] | None
+    deferred_at: datetime
+
+
+class AgentController:
+    def __init__(
+        self,
+        config: AgentConfig,
+        agents: dict[str, AgentBase],
+        slack: SlackClient,
+        config_path: str = "config.yaml",
+        rag: IncidentRAG | None = None,
+    ) -> None:
+        self._config = config
+        self.agents = agents
+        self._slack = slack
+        self._config_path = config_path
+        self._rag = rag
+        self._whitelist_path = Path(config.controller.whitelist_path)
+        self._grace_period = config.monitor.grace_period_seconds
+
+        self.mode: Literal["monitor", "act"] = config.controller.mode
+        self.whitelist: set[str] = self._load_whitelist()
+        self.stopped: bool = False
+        self.deferred: dict[str, DeferredAlert] = {}
+        self._active_agent_task: asyncio.Task | None = None
+
+    # ------------------------------------------------------------------
+    # Whitelist persistence
+    # ------------------------------------------------------------------
+
+    def _load_whitelist(self) -> set[str]:
+        if self._whitelist_path.exists():
+            try:
+                return set(json.loads(self._whitelist_path.read_text()))
+            except Exception:
+                return set()
+        return set()
+
+    def _save_whitelist(self) -> None:
+        self._whitelist_path.write_text(json.dumps(sorted(self.whitelist), indent=2))
+
+    # ------------------------------------------------------------------
+    # Mode persistence
+    # ------------------------------------------------------------------
+
+    def _persist_mode(self, mode: str) -> None:
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("controller", {})["mode"] = mode
+            with open(self._config_path, "w") as f:
+                yaml.dump(data, f, sort_keys=False, default_flow_style=False)
+        except Exception as exc:
+            console.print(f"[yellow]Warning: could not persist mode to config: {exc}[/yellow]")
+
+    # ------------------------------------------------------------------
+    # Command detection
+    # ------------------------------------------------------------------
+
+    def is_command(self, text: str) -> bool:
+        return text.lower().strip() in _COMMANDS
+
+    # ------------------------------------------------------------------
+    # Event routing
+    # ------------------------------------------------------------------
+
+    async def handle_event(self, event: dict) -> None:
+        etype = event.get("type", "")
+        source = event.get("source", "")
+
+        if self.stopped and etype != "user_message":
+            return
+
+        if etype == "user_message":
+            await self._run_agent_chat(event)
+            return
+
+        if self.mode == "monitor":
+            await self._notify_only(event)
+            return
+
+        if source == "monitor":
+            if etype == "services_down":
+                await self._defer(event)
+                return
+            if etype == "service_recovered":
+                await self._handle_recovery(event)
+                return
+
+        await self._run_agent(event)
+
+    async def _notify_only(self, event: dict) -> None:
+        etype = event.get("type", "")
+        data = event.get("data", {})
+        if etype == "services_down":
+            services = [s["service"] for s in data.get("services", [])]
+            await self._slack.notify(
+                f"👁 Monitor alert: {', '.join(f'`{s}`' for s in services)} degraded. "
+                f"(monitor-only mode — not acting)"
+            )
+        elif etype == "service_recovered":
+            svc = data.get("service", "unknown")
+            await self._slack.notify(f"✅ `{svc}` recovered.")
+
+    async def _run_agent(self, event: dict) -> None:
+        agent = self.agents["default"]
+        task = asyncio.create_task(agent.handle_event(event))
+        agent._active_task = task  # type: ignore[attr-defined]
+        self._active_agent_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._active_agent_task = None
+            agent._active_task = None  # type: ignore[attr-defined]
+
+    async def _run_agent_chat(self, event: dict) -> None:
+        source = event.get("source", "cli")
+        message = event["data"]["message"]
+        agent = self.agents["default"]
+        task = asyncio.create_task(
+            agent.chat(message, trigger=f"{source}:user_message")
+        )
+        agent._active_task = task  # type: ignore[attr-defined]
+        self._active_agent_task = task
+        try:
+            response, _ = await task
+            if source != "cli" and response:
+                await self._slack.notify(response)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._active_agent_task = None
+            agent._active_task = None  # type: ignore[attr-defined]
+
+    # ------------------------------------------------------------------
+    # Control commands
+    # ------------------------------------------------------------------
+
+    async def handle_command(self, text: str) -> str:
+        lower = text.lower().strip()
+        if lower == "stop":
+            return await self._cmd_stop()
+        if lower == "start":
+            return await self._cmd_start()
+        if lower == "queue":
+            return self._cmd_queue()
+        if lower == "mode monitor":
+            return await self._cmd_mode("monitor")
+        if lower == "mode act":
+            return await self._cmd_mode("act")
+        return f"Unknown command: {text!r}"
+
+    async def _cmd_stop(self) -> str:
+        self.stopped = True
+        for alert in list(self.deferred.values()):
+            alert.timer_task.cancel()
+        self.deferred.clear()
+        if self._active_agent_task:
+            self._active_agent_task.cancel()
+        await self.agents["default"].cancel_all()
+        return "🛑 Stopped. All pending work cancelled. Type `start` to resume."
+
+    async def _cmd_start(self) -> str:
+        self.stopped = False
+        return "✅ Resumed."
+
+    def _cmd_queue(self) -> str:
+        if not self.deferred:
+            return "No pending investigations in queue."
+        now = datetime.now(timezone.utc)
+        lines = [f"*{len(self.deferred)} pending investigation(s):*"]
+        for alert in self.deferred.values():
+            age = int((now - alert.deferred_at).total_seconds())
+            remaining = max(0, self._grace_period - age)
+            lines.append(
+                f"• `{alert.alert_id}` — {', '.join(alert.services)} "
+                f"— waiting {age}s, {remaining}s remaining"
+            )
+        return "\n".join(lines)
+
+    async def _cmd_mode(self, mode: Literal["monitor", "act"]) -> str:
+        self.mode = mode
+        self._persist_mode(mode)
+        if mode == "monitor":
+            return "👁 Monitor-only mode. I'll notify but not act."
+        return "⚡ Act mode. I'll investigate and propose actions."
+
+    # ------------------------------------------------------------------
+    # Grace period
+    # ------------------------------------------------------------------
+
+    async def _defer(self, event: dict) -> None:
+        alert_id = f"alert-{secrets.token_hex(4)}"
+        services = [s["service"] for s in event["data"].get("services", [])]
+        message_ref = await self._slack.notify_deferred_alert(
+            alert_id, services, self._grace_period
+        )
+        timer = asyncio.create_task(self._grace_period_timer(alert_id))
+        self.deferred[alert_id] = DeferredAlert(
+            alert_id=alert_id,
+            event=event,
+            services=services,
+            timer_task=timer,
+            slack_message_ref=message_ref,
+            deferred_at=datetime.now(timezone.utc),
+        )
+
+    async def _grace_period_timer(self, alert_id: str) -> None:
+        await asyncio.sleep(self._grace_period)
+        alert = self.deferred.pop(alert_id, None)
+        if alert is not None:
+            await self._run_agent(alert.event)
+
+    async def _handle_recovery(self, event: dict) -> None:
+        service = event["data"]["service"]
+        duration = event["data"].get("down_duration_seconds", 0)
+        for alert_id, alert in list(self.deferred.items()):
+            if service in alert.services:
+                alert.timer_task.cancel()
+                del self.deferred[alert_id]
+                await self._slack.notify(
+                    f"✅ `{service}` recovered on its own after {duration}s — no investigation needed."
+                )
+                if self._rag is not None:
+                    await self._write_self_healed_incident(service, duration)
+                return
+        # No deferred alert — agent was already working on it
+        await self._run_agent(event)
+
+    async def _write_self_healed_incident(self, service: str, duration: int) -> None:
+        count = await self._rag.count_incidents()
+        inc_id = f"INC-{count + 1:04d}"
+        now = datetime.now(timezone.utc)
+        await self._rag.store_incident({
+            "id": inc_id,
+            "title": f"{service}-self-healed",
+            "date": now,
+            "tags": ["recovery", "self-healed"],
+            "inciting_incident": (
+                f"`{service}` degraded and recovered without agent intervention after {duration}s."
+            ),
+            "resolution": "Cluster software self-healed the service. No agent action taken.",
+            "tools_used": [],
+        })
+
+    async def start_alert(self, alert_id: str) -> bool:
+        alert = self.deferred.pop(alert_id, None)
+        if alert is None:
+            return False
+        alert.timer_task.cancel()
+        asyncio.create_task(self._run_agent(alert.event))
+        return True
+
+    async def ignore_alert(self, alert_id: str) -> bool:
+        alert = self.deferred.pop(alert_id, None)
+        if alert is None:
+            return False
+        alert.timer_task.cancel()
+        return True
+
+    # ------------------------------------------------------------------
+    # Whitelist management
+    # ------------------------------------------------------------------
+
+    async def add_to_whitelist(self, command: str) -> None:
+        self.whitelist.add(command)
+        self._save_whitelist()
+        agent = self.agents["default"]
+        if hasattr(agent, "_safety"):
+            agent._safety.update_whitelist(self.whitelist)  # type: ignore[attr-defined]
+        await self._slack.notify(f"✅ Added to whitelist: `{command}`")

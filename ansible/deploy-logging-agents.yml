@@ -1,0 +1,7 @@
+---
+- name: Deploy Promtail log shipping agents
+  hosts: proxmox_vms:!swarm_nodes:proxmox_nodes
+  become: true
+
+  roles:
+    - promtail

@@ -25,6 +25,7 @@ from agent.agent import ActionLogger, HomelabAgent
 from agent.config_schema import AgentConfig, load_agent_config
 from agent.log_viewer import browse_log
 from agent.monitor import MonitorDaemon
+from controller import AgentController
 
 console = Console()
 
@@ -401,20 +402,11 @@ async def _post_cost(agent: HomelabAgent, cost_usd: float) -> None:
     await agent._slack.notify(f"_{agent._last_cost_breakdown}_")
 
 
-async def event_consumer(agent: HomelabAgent, event_queue: asyncio.Queue) -> None:
+async def event_consumer(controller: AgentController, event_queue: asyncio.Queue) -> None:
     while True:
         event = await event_queue.get()
         try:
-            if event["type"] == "user_message":
-                source = event.get("source", "cli")
-                response, cost_usd = await agent.chat(event["data"]["message"], trigger=f"{source}:user_message")
-                if source != "cli":
-                    if response:
-                        await agent._slack.notify(response)
-                    await _post_cost(agent, cost_usd)
-            else:
-                _, cost_usd = await agent.handle_event(event)
-                await _post_cost(agent, cost_usd)
+            await controller.handle_event(event)
         except Exception as exc:
             console.print(f"\n[bold red]Event consumer error:[/bold red] {exc}")
         finally:
@@ -434,6 +426,16 @@ async def amain(args: argparse.Namespace) -> None:
     # Initialise RAG schema (creates DB + table if not already present)
     if agent._rag is not None:
         await agent._rag.init_schema()
+
+    controller = AgentController(
+        config=config,
+        agents={"default": agent},
+        slack=agent._slack,
+        config_path=args.config,
+        rag=agent._rag,
+    )
+    # Push whitelist into SafetyPolicy on startup
+    agent._safety.update_whitelist(controller.whitelist)
 
     log_path = config.action_log.path
     action_logger = ActionLogger(log_path)
@@ -472,7 +474,7 @@ async def amain(args: argparse.Namespace) -> None:
 
     # Single message mode
     if args.message:
-        consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
+        consumer_task = asyncio.create_task(event_consumer(controller, event_queue))
         await agent.chat(args.message, trigger="cli:user_message")
         await event_queue.join()
         consumer_task.cancel()
@@ -481,10 +483,10 @@ async def amain(args: argparse.Namespace) -> None:
 
     # Start background tasks
     monitor_task = asyncio.create_task(monitor.run())
-    consumer_task = asyncio.create_task(event_consumer(agent, event_queue))
+    consumer_task = asyncio.create_task(event_consumer(controller, event_queue))
 
     if args.daemon:
-        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue)
+        listener_task, listener_server = await agent.start_approval_listener(listener_host, listener_port, event_queue, controller=controller)
         reporter_task = asyncio.create_task(cost_reporter(agent, log_path))
         console.print("[dim]Running in daemon mode. Ctrl+C to stop.[/dim]")
         try:

@@ -1,0 +1,10 @@
+---
+runner_base_dir: /opt/claude-runner
+runner_port: 8080
+claude_user: claude
+claude_user_home: /home/claude
+
+# Gitea PyPI registry settings
+gitea_pypi_url: https://gitea.schollar.dev/api/packages/chris/pypi/simple/
+gitea_pypi_user: chris
+gitea_pypi_token: ""   # set via --extra-vars or ansible-vault

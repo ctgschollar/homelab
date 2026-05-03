@@ -1,0 +1,15 @@
+---
+- name: Deploy claude-runner API service
+  hosts: claude2
+  become: true
+
+  vars:
+    required_tools: [tea, jq]
+
+  pre_tasks:
+    - name: Install required tools
+      import_role:
+        name: tools
+
+  roles:
+    - runner

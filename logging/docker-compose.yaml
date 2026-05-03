@@ -9,7 +9,7 @@ volumes:
       size: "30G"
       fs: "xfs"
       replicas: "2"
-      storagepool: "pool_hdd"
+      storagepool: "pool_ssd"
 
 configs:
   loki-config.yml:

@@ -331,3 +331,59 @@ def test_run_shell_tier2_pattern_match_becomes_tier3() -> None:
         command="git push origin main",
     )
     assert resolved.tier == 3
+
+
+# --- whitelist ---
+
+def make_policy_with_whitelist(commands: list[str]) -> SafetyPolicy:
+    policy = make_policy()
+    policy.whitelist = set(commands)
+    return policy
+
+
+def test_whitelisted_command_is_tier1() -> None:
+    policy = make_policy_with_whitelist(["df -h"])
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=3,
+        agent_reasoning="should be overridden by whitelist",
+        command="df -h",
+    )
+    assert resolved.tier == 1
+
+
+def test_non_whitelisted_command_unaffected() -> None:
+    policy = make_policy_with_whitelist(["df -h"])
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        agent_reasoning="read-only",
+        command="free -h",
+    )
+    assert resolved.tier == 1  # passes through normally
+
+
+def test_whitelist_does_not_apply_to_non_shell_tools() -> None:
+    policy = make_policy_with_whitelist(["df -h"])
+    resolved = policy.resolve_tier(tool_name="read_file")
+    assert resolved.tier == 1  # read_file is tier 1 by default — unrelated to whitelist
+
+
+def test_safe_mode_overrides_whitelist() -> None:
+    policy = make_policy(global_safe_mode=True)
+    policy.whitelist = {"df -h"}
+    resolved = policy.resolve_tier(
+        tool_name="run_shell",
+        agent_proposed_tier=1,
+        agent_reasoning="read-only",
+        command="df -h",
+    )
+    assert resolved.tier == 3
+    assert resolved.safe_mode_active is True
+
+
+def test_update_whitelist_replaces_set() -> None:
+    policy = make_policy_with_whitelist(["df -h"])
+    policy.update_whitelist({"free -h", "uptime"})
+    assert policy.whitelist == {"free -h", "uptime"}
+    assert "df -h" not in policy.whitelist

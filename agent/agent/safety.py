@@ -97,6 +97,10 @@ class SafetyPolicy:
             re.compile(p) for p in guards.force_tier2
         ]
         self._last_guard_match: tuple[str, str] | None = None
+        self.whitelist: set[str] = set()
+
+    def update_whitelist(self, commands: set[str]) -> None:
+        self.whitelist = commands
 
     def _resource_in_safe_mode(self, target_resource: str | None) -> bool:
         if target_resource is None:
@@ -185,6 +189,15 @@ class SafetyPolicy:
                 override_reason=override_reason,
                 guard_matched_list=guard_list,
                 guard_matched_pattern=guard_pattern,
+            )
+
+        # Whitelisted commands are always tier 1 (safe mode already checked above)
+        if tool_name == "run_shell" and command and command in self.whitelist:
+            return ResolvedTier(
+                tier=1,
+                safe_mode_active=False,
+                original_tier=None,
+                agent_reasoning=agent_reasoning,
             )
 
         # No safe-mode override — use original tier

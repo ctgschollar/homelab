@@ -226,7 +226,7 @@ WantedBy=multi-user.target
 
 ### Relationship to existing role
 
-`ansible/roles/claude-runner` is left untouched. The new `runner` role is additive and deploys to the same `claude` host.
+The new `runner` role deploys to a **new VM** (separate from the existing `claude` host at 192.168.3.79). The existing `ansible/roles/claude-runner` role and its VM are left running untouched — the old runner continues operating during the transition. Once the new approach is validated, the old VM and role will be decommissioned.
 
 ---
 

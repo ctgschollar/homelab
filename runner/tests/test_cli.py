@@ -13,8 +13,10 @@ def test_encode_path():
 
 
 def test_capture_session_id_finds_most_recent(tmp_path):
-    encoded = _encode_path(str(tmp_path / "myrepo"))
-    projects_dir = Path.home() / ".claude" / "projects" / encoded
+    repo_path = str(tmp_path / "myrepo")
+    encoded = _encode_path(repo_path)
+    projects_root = tmp_path / "projects"
+    projects_dir = projects_root / encoded
     projects_dir.mkdir(parents=True, exist_ok=True)
     older = projects_dir / "old-uuid.jsonl"
     newer = projects_dir / "new-uuid.jsonl"
@@ -22,12 +24,15 @@ def test_capture_session_id_finds_most_recent(tmp_path):
     import time; time.sleep(0.01)
     newer.write_text("")
 
-    result = _capture_session_id(str(tmp_path / "myrepo"))
+    result = _capture_session_id(repo_path, projects_root=projects_root)
     assert result == "new-uuid"
 
 
 def test_capture_session_id_missing_dir(tmp_path):
-    result = _capture_session_id(str(tmp_path / "nonexistent-repo"))
+    result = _capture_session_id(
+        str(tmp_path / "nonexistent-repo"),
+        projects_root=tmp_path / "projects",
+    )
     assert result is None
 
 
@@ -120,6 +125,48 @@ def test_logs_command_non_follow(tmp_path):
 
     assert result.exit_code == 0
     assert "turns=3" in result.output
+
+
+def test_stop_command_calls_api():
+    with patch("runner.cli._api") as mock_api:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.return_value.status_code = 202
+        mock_client.post.return_value.raise_for_status = MagicMock()
+        mock_api.return_value = mock_client
+
+        result = runner_cli.invoke(app, ["stop", "myapp"])
+    assert result.exit_code == 0
+    assert "myapp" in result.output
+
+
+def test_remove_command_calls_api():
+    with patch("runner.cli._api") as mock_api:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.delete.return_value.status_code = 204
+        mock_client.delete.return_value.raise_for_status = MagicMock()
+        mock_api.return_value = mock_client
+
+        result = runner_cli.invoke(app, ["remove", "myapp"])
+    assert result.exit_code == 0
+    assert "myapp" in result.output
+
+
+def test_set_prompt_command_calls_api():
+    with patch("runner.cli._api") as mock_api:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.patch.return_value.status_code = 200
+        mock_client.patch.return_value.raise_for_status = MagicMock()
+        mock_api.return_value = mock_client
+
+        result = runner_cli.invoke(app, ["set-prompt", "myapp", "do the thing"])
+    assert result.exit_code == 0
+    assert "myapp" in result.output
 
 
 def test_print_log_line_parses_assistant():

@@ -26,10 +26,12 @@ def _encode_path(repo_path: str) -> str:
     return repo_path.replace("/", "-")
 
 
-def _capture_session_id(repo_path: str) -> Optional[str]:
+def _capture_session_id(repo_path: str, projects_root: Optional[Path] = None) -> Optional[str]:
     """Find the most recently modified .jsonl session file under ~/.claude/projects/<encoded>/."""
     encoded = _encode_path(repo_path)
-    projects_dir = Path.home() / ".claude" / "projects" / encoded
+    if projects_root is None:
+        projects_root = Path.home() / ".claude" / "projects"
+    projects_dir = projects_root / encoded
     if not projects_dir.exists():
         return None
     session_files = sorted(
@@ -111,6 +113,9 @@ def run(
         if r.status_code == 404:
             typer.echo(f"Error: session '{name}' not found", err=True)
             raise typer.Exit(1)
+        if r.status_code == 409:
+            typer.echo(f"Error: session '{name}' is already running", err=True)
+            raise typer.Exit(1)
         r.raise_for_status()
     typer.echo(f"Started autonomous run for '{name}'. Follow with: claude-runner logs {name} --follow")
 
@@ -122,6 +127,9 @@ def stop(name: str = typer.Argument(..., help="Session name")):
         r = client.post(f"/sessions/{name}/stop")
         if r.status_code == 404:
             typer.echo(f"Error: session '{name}' not found", err=True)
+            raise typer.Exit(1)
+        if r.status_code == 409:
+            typer.echo(f"Error: session '{name}' is not running", err=True)
             raise typer.Exit(1)
         r.raise_for_status()
     typer.echo(f"Stopped '{name}'")
@@ -139,6 +147,7 @@ def logs(
             if r.status_code == 404:
                 typer.echo(f"Error: session '{name}' not found", err=True)
                 raise typer.Exit(1)
+            r.raise_for_status()
             for line in r.iter_lines():
                 if line.startswith("data: "):
                     _print_log_line(line[6:])

@@ -368,6 +368,7 @@ class HomelabAgent:
         self._zar_rate_fetched_at: datetime | None = None
         self._system_prompt = build_system_prompt()
         self._active_execution: dict | None = None  # set while a tool is executing
+        self._active_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -825,6 +826,11 @@ class HomelabAgent:
 
         task = asyncio.create_task(_serve())
         return task, server
+
+    async def cancel_all(self) -> None:
+        self._pending.cancel_all("emergency stop")
+        if self._active_task is not None:
+            self._active_task.cancel()
 
     async def aclose(self) -> None:
         await self._slack.aclose()

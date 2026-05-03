@@ -75,6 +75,53 @@ def test_run_command_calls_api():
     assert "myapp" in result.output
 
 
+def test_new_command_registers_session(tmp_path):
+    """new command: invokes subprocess.run(['claude']), captures session ID, POSTs to API."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+
+    with patch("runner.cli.subprocess.run") as mock_run, \
+         patch("runner.cli._capture_session_id", return_value="captured-uuid") as mock_capture, \
+         patch("runner.cli._api") as mock_api:
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.return_value.status_code = 201
+        mock_client.post.return_value.raise_for_status = MagicMock()
+        mock_api.return_value = mock_client
+
+        result = runner_cli.invoke(app, ["new", "testapp", str(repo)])
+
+    assert result.exit_code == 0
+    mock_run.assert_called_once_with(["claude"], cwd=str(repo))
+    mock_capture.assert_called_once_with(str(repo))
+    posted = mock_client.post.call_args
+    assert posted[0][0] == "/sessions"
+    assert posted[1]["json"]["name"] == "testapp"
+    assert posted[1]["json"]["session_id"] == "captured-uuid"
+    assert "testapp" in result.output
+
+
+def test_logs_command_non_follow(tmp_path):
+    """logs command without --follow fetches last-N lines."""
+    with patch("runner.cli._api") as mock_api:
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value.status_code = 200
+        mock_client.get.return_value.raise_for_status = MagicMock()
+        mock_client.get.return_value.json.return_value = {
+            "lines": ['{"type": "result", "num_turns": 3, "cost_usd": 0.001}']
+        }
+        mock_api.return_value = mock_client
+
+        result = runner_cli.invoke(app, ["logs", "myapp"])
+
+    assert result.exit_code == 0
+    assert "turns=3" in result.output
+
+
 def test_print_log_line_parses_assistant():
     from runner.cli import _print_log_line
     from io import StringIO

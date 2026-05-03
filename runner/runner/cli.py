@@ -159,7 +159,7 @@ def list_sessions():
     with _api() as client:
         r = client.get("/sessions")
         r.raise_for_status()
-    sessions = r.json()
+        sessions = r.json()
     if not sessions:
         typer.echo("No sessions. Create one with: claude-runner new <name> <repo>")
         return

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-runner"
-version = "0.1.0"
+dynamic = ["version"]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",
@@ -28,6 +28,9 @@ dependencies = [
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args}"
+
+[tool.hatch.version]
+path = "runner/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["runner"]

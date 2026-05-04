@@ -46,7 +46,7 @@ async def test_start_run_updates_status_to_running(tmp_env):
 
     with patch("runner.process.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         with patch("runner.process.asyncio.create_task"):
-            pid = await start_run("app", "uuid-123", "do the thing", None)
+            pid = await start_run("app", "uuid-123", "/repos/app", "do the thing", None)
 
     assert pid == 9999
     session = await get_session("app")

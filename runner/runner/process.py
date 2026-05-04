@@ -28,6 +28,7 @@ def build_prompt(base_prompt: Optional[str], extra_prompt: Optional[str]) -> str
 async def start_run(
     name: str,
     session_id: str,
+    repo_path: str,
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
 ) -> int:
@@ -45,6 +46,7 @@ async def start_run(
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        cwd=repo_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

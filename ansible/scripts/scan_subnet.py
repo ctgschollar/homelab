@@ -131,25 +131,31 @@ def main() -> None:
                 console.print("[dim]Skipped.[/dim]")
                 continue
 
-            console.print(f"  → Will register as: [green]{hostname}.{args.domain}[/green]\n")
-
             choices = current_groups + dynamic_groups + ["+ Create new group"]
-            group = questionary.select("Group:", choices=choices).ask()
-            if group is None:
+            selected = questionary.checkbox("Groups (space to select):", choices=choices).ask()
+            if selected is None:
                 raise KeyboardInterrupt
 
-            if group == "+ Create new group":
-                group = questionary.text("New group name:").ask()
-                if group is None:
+            if "+ Create new group" in selected:
+                selected.remove("+ Create new group")
+                new_group = questionary.text("New group name:").ask()
+                if new_group is None:
                     raise KeyboardInterrupt
-                group = group.strip()
-                if group and group not in current_groups and group not in dynamic_groups:
-                    dynamic_groups.append(group)
+                new_group = new_group.strip()
+                if new_group and new_group not in current_groups and new_group not in dynamic_groups:
+                    dynamic_groups.append(new_group)
+                if new_group:
+                    selected.append(new_group)
 
-            if group:
-                pending.append(
-                    {"hostname": hostname, "ip": host.ip, "mac": host.mac, "group": group}
-                )
+            if not selected:
+                console.print("[dim]Skipped.[/dim]")
+                continue
+
+            console.print(f"  → Will register as: [green]{hostname}.{args.domain}[/green] in {', '.join(selected)}\n")
+
+            pending.append(
+                {"hostname": hostname, "ip": host.ip, "mac": host.mac, "groups": selected}
+            )
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled. No files written.[/yellow]")
@@ -185,7 +191,7 @@ def main() -> None:
 
     # Write inventory
     for p in pending:
-        add_host(inventory, p["hostname"], p["ip"], p["mac"], p["group"], args.domain)
+        add_host(inventory, p["hostname"], p["ip"], p["mac"], p["groups"], args.domain)
     write_inventory(inventory, inventory_path)
 
     # Write zone file

@@ -14,6 +14,12 @@ type = "virtual"
 python = "3.12"
 path = ".venv"
 skip-install = true
+dependencies = [
+    "questionary",
+    "rich",
+    "python-nmap",
+    "pyyaml",
+]
 
 [tool.hatch.envs.test]
 type = "virtual"

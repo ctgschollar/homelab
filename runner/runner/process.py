@@ -26,6 +26,10 @@ def _blocked_file(name: str) -> Path:
     return get_base_dir() / "logs" / f"{name}.blocked"
 
 
+def _done_file(name: str) -> Path:
+    return get_base_dir() / "logs" / f"{name}.done"
+
+
 def _parse_reset_time(time_str: str, tz_str: str) -> Optional[datetime]:
     try:
         tz = ZoneInfo(tz_str)
@@ -48,10 +52,12 @@ def _parse_reset_time(time_str: str, tz_str: str) -> Optional[datetime]:
 
 def build_prompt(name: str, base_prompt: Optional[str], extra_prompt: Optional[str]) -> str:
     blocked_path = _blocked_file(name)
+    done_path = _done_file(name)
     preamble = (
         "You are running autonomously with no human available. "
         "Do not ask clarifying questions — make reasonable assumptions and proceed. "
-        f"If you are truly blocked, write a brief reason to '{blocked_path}' and exit."
+        f"When you have completed all work, write a brief summary to '{done_path}' and stop — do not wait for further input. "
+        f"If you are truly blocked, write a brief reason to '{blocked_path}' and stop."
     )
     parts = [p for p in [base_prompt, extra_prompt] if p] or ["Continue with the task we discussed."]
     return "\n\n---\n\n".join([preamble] + parts)
@@ -67,6 +73,7 @@ async def start_run(
     log_file = get_base_dir() / "logs" / f"{name}.jsonl"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     _blocked_file(name).unlink(missing_ok=True)
+    _done_file(name).unlink(missing_ok=True)
 
     prompt = build_prompt(name, base_prompt, extra_prompt)
     cmd = [

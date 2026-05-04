@@ -13,7 +13,7 @@ from .models import Status
 from . import sessions as sess
 from . import process as proc
 from . import logs as log_io
-from .process import _blocked_file, _retry_at
+from .process import _blocked_file, _done_file, _retry_at
 
 
 @asynccontextmanager
@@ -60,15 +60,19 @@ async def create_session(body: CreateSessionBody):
     return await sess.create_session(body.name, body.repo_path, body.session_id, body.base_prompt)
 
 
-def _with_blocked(session) -> dict:
+def _with_extras(session) -> dict:
     blocked = _blocked_file(session.name)
-    reason = blocked.read_text().strip() if blocked.exists() else None
-    return {**session.__dict__, "blocked_reason": reason}
+    done = _done_file(session.name)
+    return {
+        **session.__dict__,
+        "blocked_reason": blocked.read_text().strip() if blocked.exists() else None,
+        "done_summary": done.read_text().strip() if done.exists() else None,
+    }
 
 
 @app.get("/sessions")
 async def list_sessions():
-    return [_with_blocked(s) for s in await sess.list_sessions()]
+    return [_with_extras(s) for s in await sess.list_sessions()]
 
 
 @app.get("/sessions/{name}")
@@ -76,7 +80,7 @@ async def get_session(name: str):
     session = await sess.get_session(name)
     if not session:
         raise HTTPException(404, f"Session '{name}' not found")
-    return _with_blocked(session)
+    return _with_extras(session)
 
 
 @app.patch("/sessions/{name}")

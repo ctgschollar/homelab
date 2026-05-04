@@ -181,19 +181,20 @@ def list_sessions():
     table.add_column("STATUS")
     table.add_column("PID")
     table.add_column("REPO")
-    table.add_column("BLOCKED")
+    table.add_column("NOTE")
     for s in sessions:
         status = s["status"]
         if status == "waiting" and s.get("retry_at"):
             from datetime import datetime
             reset = datetime.fromisoformat(s["retry_at"]).astimezone()
             status = f"waiting (retry at {reset.strftime('%H:%M %Z')})"
+        note = s.get("blocked_reason") or s.get("done_summary") or ""
         table.add_row(
             s["name"],
             status,
             str(s["pid"]) if s["pid"] else "-",
             s["repo_path"],
-            s.get("blocked_reason") or "",
+            note,
         )
     console.print(table)
 

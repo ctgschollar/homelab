@@ -19,8 +19,8 @@ all:
           ansible_host: dks05.schollar.dev
         claude:
           ansible_host: 192.168.3.79
-        claude2:
-          ansible_host: 192.168.3.XX   # replace with actual IP of new runner VM
+        claude-nunya:
+          ansible_host: 192.168.3.50
         edge01:
           ansible_host: 192.168.3.91
         gt-runner-01:

@@ -1,6 +1,7 @@
 ---
 - name: Deploy claude-runner API service
-  hosts: claude2
+  hosts:
+    - claude-nunya
   become: true
 
   vars:

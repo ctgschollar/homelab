@@ -77,17 +77,43 @@ The role resolves deps automatically — you only need to list the tools you dir
 | `cloudflared` | binary (Cloudflare) | Cloudflare tunnel |
 | `act` | binary (github.com/nektos/act) | Local Gitea/GitHub Actions runner |
 
+## Privilege Escalation
+
+All managed hosts connect as `root` directly (`ansible_user: root`) and do **not** have `sudo` installed. Any task that needs `become_user` must explicitly set `become_method: su`. Never rely on the default `sudo` become method.
+
 ## Roles
 
-### `claude-runner`
+### `runner`
 
 Deploys the autonomous Claude Code runner system to the `claude` host (`192.168.3.79`).
 
-**Deploy:** `ansible-playbook deploy-claude-runner.yml -i inventory.yml`
+**Deploy:** `ansible-playbook deploy-runner.yml -i inventory.yml --extra-vars "gitea_pypi_token=<token>"`
 
-**Required tools:** `tea`, `jq`, `act` (declared in `deploy-claude-runner.yml`)
+**Required tools:** `tea`, `jq` (declared in `deploy-runner.yml`)
 
-See `roles/claude-runner/README.md` for full documentation of the runner system.
+**What it does:**
+1. Creates the `claude` system user (`/home/claude`)
+2. Installs system deps: `python3`, `python3-pip`, `pipx`, `nodejs`, `npm`, `git`
+3. Installs Claude Code globally via npm (`@anthropic-ai/claude-code`)
+4. Installs `claude-runner` from Gitea PyPI **as the `claude` user** via `pipx install --force`, so the binary lands at `/home/claude/.local/bin/`
+5. Creates base directories under `CLAUDE_RUNNER_BASE_DIR` (`/opt/claude-runner`)
+6. Installs and starts the `claude-runner-api` systemd service
+
+**Auth:** No `ANTHROPIC_API_KEY` needed. Claude Code credentials are stored in `/home/claude/.claude/` after the first interactive login (which happens during `claude-runner new`).
+
+**Binary path:** `/home/claude/.local/bin/claude-runner-api` (installed by pipx as the `claude` user)
+
+**Key vars** (in `roles/runner/defaults/main.yml`):
+
+| Var | Default |
+|-----|---------|
+| `runner_base_dir` | `/opt/claude-runner` |
+| `runner_port` | `8080` |
+| `claude_user` | `claude` |
+| `claude_user_home` | `/home/claude` |
+| `gitea_pypi_token` | `""` — must be passed via `--extra-vars` |
+
+See `runner/CLAUDE.md` in the repo root for the runner's own development docs.
 
 ### `tools`
 

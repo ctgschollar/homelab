@@ -12,6 +12,7 @@
     name:
       - python3
       - python3-pip
+      - pipx
       - nodejs
       - npm
       - git
@@ -24,10 +25,13 @@
     global: yes
 
 - name: Install claude-runner from Gitea PyPI
-  pip:
-    name: claude-runner
-    state: latest
-    extra_args: "--extra-index-url https://{{ gitea_pypi_user }}:{{ gitea_pypi_token }}@gitea.schollar.dev/api/packages/chris/pypi/simple/"
+  command: >
+    pipx install claude-runner --force
+    --pip-args="--extra-index-url https://{{ gitea_pypi_user }}:{{ gitea_pypi_token }}@gitea.schollar.dev/api/packages/chris/pypi/simple/"
+  become_user: "{{ claude_user }}"
+  become_method: su
+  environment:
+    HOME: "{{ claude_user_home }}"
 
 - name: Create base directories
   file:

@@ -7,7 +7,7 @@ User={{ claude_user }}
 Environment=PATH={{ claude_user_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=CLAUDE_RUNNER_BASE_DIR={{ runner_base_dir }}
 Environment=CLAUDE_RUNNER_PORT={{ runner_port }}
-ExecStart=/usr/local/bin/claude-runner-api
+ExecStart={{ claude_user_home }}/.local/bin/claude-runner-api
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

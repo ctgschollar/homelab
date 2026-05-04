@@ -41,6 +41,7 @@ async def start_run(
         "--resume", session_id,
         "--dangerously-skip-permissions",
         "--output-format", "stream-json",
+        "--verbose",
         "--print", prompt,
     ]
 

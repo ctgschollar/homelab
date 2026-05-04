@@ -32,6 +32,7 @@
   become_method: su
   environment:
     HOME: "{{ claude_user_home }}"
+  notify: restart claude-runner-api
 
 - name: Create base directories
   file:

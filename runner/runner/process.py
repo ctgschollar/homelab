@@ -18,11 +18,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_prompt(base_prompt: Optional[str], extra_prompt: Optional[str]) -> str:
-    parts = [p for p in [base_prompt, extra_prompt] if p]
-    if not parts:
-        return "Continue with the task we discussed."
-    return "\n\n---\n\n".join(parts)
+def _blocked_file(name: str) -> Path:
+    return get_base_dir() / "logs" / f"{name}.blocked"
+
+
+def build_prompt(name: str, base_prompt: Optional[str], extra_prompt: Optional[str]) -> str:
+    blocked_path = _blocked_file(name)
+    preamble = (
+        "You are running autonomously with no human available. "
+        "Do not ask clarifying questions — make reasonable assumptions and proceed. "
+        f"If you are truly blocked, write a brief reason to '{blocked_path}' and exit."
+    )
+    parts = [p for p in [base_prompt, extra_prompt] if p] or ["Continue with the task we discussed."]
+    return "\n\n---\n\n".join([preamble] + parts)
 
 
 async def start_run(
@@ -34,8 +42,9 @@ async def start_run(
 ) -> int:
     log_file = get_base_dir() / "logs" / f"{name}.jsonl"
     log_file.parent.mkdir(parents=True, exist_ok=True)
+    _blocked_file(name).unlink(missing_ok=True)
 
-    prompt = build_prompt(base_prompt, extra_prompt)
+    prompt = build_prompt(name, base_prompt, extra_prompt)
     cmd = [
         "claude",
         "--resume", session_id,
@@ -48,6 +57,7 @@ async def start_run(
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=repo_path,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

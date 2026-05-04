@@ -21,3 +21,4 @@ class Session:
     pid: Optional[int]
     created_at: str
     updated_at: str
+    blocked_reason: Optional[str] = None

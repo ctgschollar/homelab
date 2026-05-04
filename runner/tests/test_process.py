@@ -15,23 +15,28 @@ async def db(tmp_env):
 
 
 def test_build_prompt_both():
-    result = build_prompt("do the task", "and also this")
-    assert result == "do the task\n\n---\n\nand also this"
+    result = build_prompt("mysession", "do the task", "and also this")
+    assert "do the task" in result
+    assert "and also this" in result
+    assert "autonomously" in result
 
 
 def test_build_prompt_base_only():
-    result = build_prompt("do the task", None)
-    assert result == "do the task"
+    result = build_prompt("mysession", "do the task", None)
+    assert "do the task" in result
+    assert "autonomously" in result
 
 
 def test_build_prompt_extra_only():
-    result = build_prompt(None, "just this")
-    assert result == "just this"
+    result = build_prompt("mysession", None, "just this")
+    assert "just this" in result
+    assert "autonomously" in result
 
 
 def test_build_prompt_neither():
-    result = build_prompt(None, None)
-    assert result == "Continue with the task we discussed."
+    result = build_prompt("mysession", None, None)
+    assert "Continue with the task we discussed." in result
+    assert "autonomously" in result
 
 
 async def test_start_run_updates_status_to_running(tmp_env):

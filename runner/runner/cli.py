@@ -177,6 +177,8 @@ def list_sessions():
     typer.echo(fmt % ("----", "------", "---", "----"))
     for s in sessions:
         typer.echo(fmt % (s["name"], s["status"], s["pid"] or "-", s["repo_path"]))
+        if s.get("blocked_reason"):
+            typer.echo(f"  blocked: {s['blocked_reason']}")
 
 
 @app.command()

@@ -8,6 +8,10 @@ from typing import Optional
 
 import httpx
 import typer
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
 
 app = typer.Typer(help="Claude Runner — manage named Claude Code sessions", add_completion=False)
 
@@ -172,18 +176,26 @@ def list_sessions():
     if not sessions:
         typer.echo("No sessions. Create one with: claude-runner new <name> <repo>")
         return
-    fmt = "%-20s %-10s %-6s %s"
-    typer.echo(fmt % ("NAME", "STATUS", "PID", "REPO"))
-    typer.echo(fmt % ("----", "------", "---", "----"))
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("NAME")
+    table.add_column("STATUS")
+    table.add_column("PID")
+    table.add_column("REPO")
+    table.add_column("BLOCKED")
     for s in sessions:
         status = s["status"]
         if status == "waiting" and s.get("retry_at"):
-            from datetime import datetime, timezone
+            from datetime import datetime
             reset = datetime.fromisoformat(s["retry_at"]).astimezone()
             status = f"waiting (retry at {reset.strftime('%H:%M %Z')})"
-        typer.echo(fmt % (s["name"], status, s["pid"] or "-", s["repo_path"]))
-        if s.get("blocked_reason"):
-            typer.echo(f"  blocked: {s['blocked_reason']}")
+        table.add_row(
+            s["name"],
+            status,
+            str(s["pid"]) if s["pid"] else "-",
+            s["repo_path"],
+            s.get("blocked_reason") or "",
+        )
+    console.print(table)
 
 
 @app.command()

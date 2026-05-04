@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-runner"
+dynamic = ["version"]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "typer[all]>=0.12",
+    "httpx>=0.27",
+    "aiosqlite>=0.20",
+    "sse-starlette>=2.1",
+]
+
+[project.scripts]
+claude-runner     = "runner.cli:app"
+claude-runner-api = "runner.main:main"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args}"
+
+[tool.hatch.version]
+path = "runner/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["runner"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.publish.index]
+url = "https://gitea.schollar.dev/api/packages/chris/pypi"

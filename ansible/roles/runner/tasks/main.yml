@@ -1,0 +1,63 @@
+---
+- name: Create claude user
+  user:
+    name: "{{ claude_user }}"
+    home: "{{ claude_user_home }}"
+    shell: /bin/bash
+    state: present
+    create_home: yes
+
+- name: Install system dependencies
+  apt:
+    name:
+      - python3
+      - python3-pip
+      - pipx
+      - nodejs
+      - npm
+      - git
+    state: present
+    update_cache: yes
+
+- name: Install Claude Code globally
+  npm:
+    name: "@anthropic-ai/claude-code"
+    global: yes
+
+- name: Install claude-runner from Gitea PyPI
+  command: >
+    pipx install claude-runner --force
+    --pip-args="--extra-index-url https://{{ gitea_pypi_user }}:{{ gitea_pypi_token }}@gitea.schollar.dev/api/packages/chris/pypi/simple/"
+  become_user: "{{ claude_user }}"
+  become_method: su
+  environment:
+    HOME: "{{ claude_user_home }}"
+  notify: restart claude-runner-api
+
+- name: Create base directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    mode: '0755'
+  loop:
+    - "{{ runner_base_dir }}"
+    - "{{ runner_base_dir }}/logs"
+
+- name: Install systemd service
+  template:
+    src: claude-runner-api.service.j2
+    dest: /etc/systemd/system/claude-runner-api.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart claude-runner-api
+
+- name: Enable and start service
+  systemd:
+    name: claude-runner-api
+    enabled: yes
+    state: started

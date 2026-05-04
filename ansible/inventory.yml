@@ -1,56 +1,99 @@
----
-# Inventory file for homelab infrastructure
-# Docker Swarm nodes: dks01-dks05.schollar.dev
-# Edge node: 192.168.3.91
-
 all:
+  vars:
+    ansible_user: root
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_private_key_file: '{{ inventory_dir }}/ansible_ssh_key'
+  hosts:
+    mikrotik:
+      ansible_host: mikrotik.schollar.dev
+      ansible_ip: 192.168.3.1
+    rpi01:
+      ansible_host: rpi01.schollar.dev
+      ansible_ip: 192.168.3.2
+    claude-nunya:
+      ansible_host: claude-nunya.schollar.dev
+      ansible_ip: 192.168.3.50
+    dks01:
+      ansible_host: dks01.schollar.dev
+      ansible_ip: 192.168.3.70
+    dks02:
+      ansible_host: dks02.schollar.dev
+      ansible_ip: 192.168.3.71
+    dks03:
+      ansible_host: dks03.schollar.dev
+      ansible_ip: 192.168.3.72
+    dks04:
+      ansible_host: dks04.schollar.dev
+      ansible_ip: 192.168.3.73
+    dks05:
+      ansible_host: dks05.schollar.dev
+      ansible_ip: 192.168.3.74
+    claude-runner:
+      ansible_host: claude-runner.schollar.dev
+      ansible_ip: 192.168.3.79
+    edge:
+      ansible_host: edge.schollar.dev
+      ansible_ip: 192.168.3.91
+    prx01:
+      ansible_host: prx01.schollar.dev
+      ansible_ip: 192.168.3.101
+    prx02:
+      ansible_host: prx02.schollar.dev
+      ansible_ip: 192.168.3.102
+    prx03:
+      ansible_host: prx03.schollar.dev
+      ansible_ip: 192.168.3.103
+    prx04:
+      ansible_host: prx04.schollar.dev
+      ansible_ip: 192.168.3.104
+    prx05:
+      ansible_host: prx05.schollar.dev
+      ansible_ip: 192.168.3.105
+    desktop:
+      ansible_host: desktop.schollar.dev
+      ansible_ip: 192.168.3.241
   children:
-    proxmox_vms:
+    net:
       hosts:
-        dks01:
-          ansible_host: dks01.schollar.dev
-        dks02:
-          ansible_host: dks02.schollar.dev
-        dks03:
-          ansible_host: dks03.schollar.dev
-        dks04:
-          ansible_host: dks04.schollar.dev
-        dks05:
-          ansible_host: dks05.schollar.dev
-        claude:
-          ansible_host: 192.168.3.79
-        claude-nunya:
-          ansible_host: 192.168.3.50
-        edge01:
-          ansible_host: 192.168.3.91
-        gt-runner-01:
-          ansible_host: 192.168.3.100
-      vars:
-        ansible_user: root
-        ansible_python_interpreter: /usr/bin/python3
-        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
-
-    swarm_nodes:
+        mikrotik: null
+        rpi01: null
+        edge: null
+    host:
       hosts:
-        dks01:
-        dks02:
-        dks03:
-        dks04:
-        dks05:
-
-    proxmox_nodes:
+        rpi01: null
+        prx01: null
+        prx02: null
+        prx03: null
+        prx04: null
+        prx05: null
+    proxmox_vm:
       hosts:
-        prx01:
-          ansible_host: prx01.schollar.dev
-        prx02:
-          ansible_host: prx02.schollar.dev
-        prx03:
-          ansible_host: prx03.schollar.dev
-        prx04:
-          ansible_host: prx04.schollar.dev
-        prx05:
-          ansible_host: prx05.schollar.dev
-      vars:
-        ansible_user: root
-        ansible_python_interpreter: /usr/bin/python3
-        ansible_ssh_private_key_file: "{{ inventory_dir }}/ansible_ssh_key"
+        claude-nunya: null
+        dks01: null
+        dks02: null
+        dks03: null
+        dks04: null
+        dks05: null
+        claude-runner: null
+        edge: null
+    docker_swarm:
+      hosts:
+        dks01: null
+        dks02: null
+        dks03: null
+        dks04: null
+        dks05: null
+    claude:
+      hosts:
+        claude-nunya: null
+        claude-runner: null
+    proxmox:
+      hosts:
+        prx01: null
+        prx02: null
+        prx03: null
+        prx04: null
+        prx05: null
+    pc:
+      hosts:
+        desktop: null

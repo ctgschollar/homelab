@@ -2,15 +2,37 @@
 name = "homelab-ansible"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "questionary",
+    "rich",
+    "python-nmap",
+    "pyyaml",
+]
+
+[tool.hatch.envs.default]
+type = "virtual"
+python = "3.12"
+path = ".venv"
+skip-install = true
+dependencies = [
+    "questionary",
+    "rich",
+    "python-nmap",
+    "pyyaml",
+]
 
 [tool.hatch.envs.test]
 type = "virtual"
 python = "3.12"
-path = ".venv"
+path = ".venv-test"
+skip-install = true
 dependencies = [
     "pytest>=8.0",
     "ansible-core>=2.15",
+    "questionary",
+    "rich",
+    "python-nmap",
+    "pyyaml",
 ]
 
 [tool.hatch.envs.test.scripts]

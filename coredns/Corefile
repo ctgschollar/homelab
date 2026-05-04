@@ -1,9 +1,3 @@
-home.:53 {
-  file /etc/coredns/zones/home.db
-  log
-  errors
-}
-
 schollar.dev:53 {
   file /etc/coredns/zones/schollar.dev.db
   log

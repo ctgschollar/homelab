@@ -9,6 +9,7 @@ class Status(str, Enum):
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
+    WAITING = "waiting"
 
 
 @dataclass
@@ -21,4 +22,6 @@ class Session:
     pid: Optional[int]
     created_at: str
     updated_at: str
+    retry_at: Optional[str] = None
+    last_extra_prompt: Optional[str] = None
     blocked_reason: Optional[str] = None

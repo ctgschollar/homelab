@@ -1,4 +1,5 @@
 """FastAPI application."""
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -12,13 +13,25 @@ from .models import Status
 from . import sessions as sess
 from . import process as proc
 from . import logs as log_io
-from .process import _blocked_file
+from .process import _blocked_file, _retry_at
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _reschedule_waiting_sessions()
     yield
+
+
+async def _reschedule_waiting_sessions() -> None:
+    from datetime import datetime, timezone
+    for session in await sess.list_waiting_sessions():
+        if session.retry_at and session.session_id:
+            reset_time = datetime.fromisoformat(session.retry_at)
+            asyncio.create_task(_retry_at(
+                session.name, session.session_id, session.repo_path,
+                session.base_prompt, session.last_extra_prompt, reset_time,
+            ))
 
 
 app = FastAPI(title="Claude Runner", lifespan=lifespan)

@@ -176,7 +176,12 @@ def list_sessions():
     typer.echo(fmt % ("NAME", "STATUS", "PID", "REPO"))
     typer.echo(fmt % ("----", "------", "---", "----"))
     for s in sessions:
-        typer.echo(fmt % (s["name"], s["status"], s["pid"] or "-", s["repo_path"]))
+        status = s["status"]
+        if status == "waiting" and s.get("retry_at"):
+            from datetime import datetime, timezone
+            reset = datetime.fromisoformat(s["retry_at"]).astimezone()
+            status = f"waiting (retry at {reset.strftime('%H:%M %Z')})"
+        typer.echo(fmt % (s["name"], status, s["pid"] or "-", s["repo_path"]))
         if s.get("blocked_reason"):
             typer.echo(f"  blocked: {s['blocked_reason']}")
 

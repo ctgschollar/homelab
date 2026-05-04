@@ -18,6 +18,8 @@ def _row_to_session(row) -> Session:
         status=Status(row["status"]),
         base_prompt=row["base_prompt"],
         pid=row["pid"],
+        retry_at=row["retry_at"],
+        last_extra_prompt=row["last_extra_prompt"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -69,7 +71,7 @@ async def list_sessions() -> list[Session]:
 
 
 async def update_session(name: str, **kwargs) -> Optional[Session]:
-    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "updated_at"}
+    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "retry_at", "last_extra_prompt", "updated_at"}
     unknown = set(kwargs.keys()) - ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Cannot update fields: {unknown}")
@@ -85,6 +87,16 @@ async def update_session(name: str, **kwargs) -> Optional[Session]:
     finally:
         await db.close()
     return await get_session(name)
+
+
+async def list_waiting_sessions() -> list[Session]:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM sessions WHERE status = ?", (Status.WAITING.value,))
+        rows = await cursor.fetchall()
+    finally:
+        await db.close()
+    return [_row_to_session(r) for r in rows]
 
 
 async def delete_session(name: str) -> bool:

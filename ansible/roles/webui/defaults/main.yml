@@ -1,0 +1,5 @@
+---
+webui_port: 3000
+webui_image: "ghcr.io/open-webui/open-webui:main"
+ollama_base_url: "http://localhost:11434"
+webui_data_dir: "/opt/open-webui"

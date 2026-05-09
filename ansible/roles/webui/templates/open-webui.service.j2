@@ -1,0 +1,18 @@
+[Unit]
+Description=Open WebUI
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+ExecStartPre=-/usr/bin/docker rm -f open-webui
+ExecStart=/usr/bin/docker run \
+  --name open-webui \
+  -p {{ webui_port }}:8080 \
+  -v {{ webui_data_dir }}:/app/backend/data \
+  -e OLLAMA_BASE_URL={{ ollama_base_url }} \
+  {{ webui_image }}
+ExecStop=/usr/bin/docker stop open-webui
+
+[Install]
+WantedBy=multi-user.target

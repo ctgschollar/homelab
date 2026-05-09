@@ -1,0 +1,16 @@
+---
+- name: Deploy LLM stack (Ollama + Open WebUI)
+  hosts: llm_hosts
+  become: true
+
+  vars:
+    required_tools: [docker, nvidia-drivers]
+
+  pre_tasks:
+    - name: Install required tools
+      import_role:
+        name: tools
+
+  roles:
+    - llama
+    - webui

@@ -1,0 +1,30 @@
+---
+- name: Create Open WebUI data directory
+  file:
+    path: "{{ webui_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Pull Open WebUI Docker image
+  command: docker pull {{ webui_image }}
+  register: _docker_pull
+  changed_when: "'Pull complete' in _docker_pull.stdout or 'Downloaded newer image' in _docker_pull.stdout"
+
+- name: Install Open WebUI systemd unit
+  template:
+    src: open-webui.service.j2
+    dest: /etc/systemd/system/open-webui.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart open-webui
+
+- name: Enable and start Open WebUI
+  systemd:
+    name: open-webui
+    enabled: yes
+    state: started

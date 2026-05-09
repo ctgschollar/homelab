@@ -97,3 +97,9 @@ all:
     pc:
       hosts:
         desktop: null
+    llm_hosts:
+      hosts:
+        llm:
+          ansible_host: 192.168.3.200
+          ansible_ip: 192.168.3.200
+          ansible_user: root

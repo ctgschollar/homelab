@@ -1,0 +1,11 @@
+---
+- name: Install ubuntu-drivers-common
+  apt:
+    name: ubuntu-drivers-common
+    state: present
+    update_cache: yes
+
+- name: Install recommended NVIDIA drivers
+  command: ubuntu-drivers autoinstall
+  args:
+    creates: /proc/driver/nvidia/version

@@ -26,7 +26,12 @@
   loop: "{{ resolved_tools | tools_with_key(tool_definitions, 'pipx') }}"
 
 - name: Run per-tool task files
-  include_tasks: "{{ tool_definitions[tool_name].tasks }}"
+  include_tasks: "{{ _task_file }}"
+  vars:
+    _task_file: "{{ lookup('first_found', [
+        role_path + '/tasks/' + (ansible_distribution | lower) + '/' + tool_definitions[tool_name].tasks,
+        role_path + '/tasks/debian/' + tool_definitions[tool_name].tasks
+      ]) }}"
   loop: "{{ resolved_tools | tools_with_key(tool_definitions, 'tasks') }}"
   loop_control:
     loop_var: tool_name

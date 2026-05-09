@@ -1,0 +1,32 @@
+---
+- name: Download and run Ollama install script
+  shell: curl -fsSL https://ollama.com/install.sh | sh
+  args:
+    creates: /usr/local/bin/ollama
+
+- name: Create Ollama systemd override directory
+  file:
+    path: /etc/systemd/system/ollama.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Template Ollama host/port override
+  copy:
+    dest: /etc/systemd/system/ollama.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Service]
+      Environment=OLLAMA_HOST={{ ollama_host }}:{{ ollama_port }}
+  notify:
+    - reload systemd
+    - restart ollama
+
+- name: Enable and start Ollama
+  systemd:
+    name: ollama
+    enabled: yes
+    state: started

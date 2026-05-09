@@ -72,3 +72,7 @@ tool_definitions:
   unzip:
     apt: [unzip]
     deps: []
+
+  nvidia-drivers:
+    deps: []
+    tasks: install-nvidia-drivers.yml

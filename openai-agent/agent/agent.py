@@ -480,8 +480,9 @@ class HomelabAgent:
                 )
                 return response
             except ollama.ResponseError as exc:
+                console.print(f"  [bold red]Ollama ResponseError: status={exc.status_code} error={exc.error!r}[/bold red]")
                 if attempt < 4:
-                    console.print(f"  [dim]Ollama error, retrying in {delay}s… ({exc})[/dim]")
+                    console.print(f"  [dim]Retrying in {delay}s… (attempt {attempt + 1}/5)[/dim]")
                     await asyncio.sleep(delay)
                     delay *= 2
                 else:

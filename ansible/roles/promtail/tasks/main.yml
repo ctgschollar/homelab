@@ -1,4 +1,10 @@
 ---
+- name: Install promtail dependencies
+  vars:
+    required_tools: [unzip]
+  import_role:
+    name: tools
+
 - name: Set promtail architecture
   set_fact:
     _promtail_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}"

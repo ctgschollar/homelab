@@ -68,3 +68,7 @@ tool_definitions:
   make:
     apt: [make]
     deps: []
+
+  unzip:
+    apt: [unzip]
+    deps: []

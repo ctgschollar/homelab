@@ -470,6 +470,7 @@ class HomelabAgent:
                     tools=TOOL_DEFINITIONS,
                     think=False,
                     stream=False,
+                    options={"num_ctx": 16384},
                 )
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)\nMESSAGE:\n%s",

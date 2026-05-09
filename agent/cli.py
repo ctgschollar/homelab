@@ -15,6 +15,7 @@ import argparse
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import sys
 
 import httpx
@@ -520,7 +521,13 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="Print service status and exit")
     parser.add_argument("--test-slack", action="store_true", help="Post a test plan to Slack and wait for approval")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging for API requests/responses")
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    else:
+        logging.basicConfig(level=logging.WARNING)
 
     config = load_config(args.config)
 

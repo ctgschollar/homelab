@@ -1,10 +1,13 @@
 import asyncio
 import json
+import logging
 import os
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("homelab.agent")
 
 import anthropic
 import httpx
@@ -475,10 +478,20 @@ class HomelabAgent:
         tools = list(TOOL_DEFINITIONS)
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
 
+        logger.debug(
+            "API REQUEST model=%s base_url=%s history_turns=%d\nSYSTEM:\n%s\nMESSAGES:\n%s\nTOOLS:\n%s",
+            self._model,
+            self._client.base_url,
+            len(self._history),
+            json.dumps(system, indent=2),
+            json.dumps(self._history, indent=2),
+            json.dumps([{k: v for k, v in t.items() if k != "cache_control"} for t in tools], indent=2),
+        )
+
         delay = 5
         for attempt in range(5):
             try:
-                return await self._client.messages.create(
+                response = await self._client.messages.create(
                     model=self._model,
                     max_tokens=4096,
                     system=system,
@@ -486,6 +499,13 @@ class HomelabAgent:
                     tools=tools,
                     extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                 )
+                logger.debug(
+                    "API RESPONSE stop_reason=%s usage=%s\nCONTENT:\n%s",
+                    response.stop_reason,
+                    response.usage,
+                    json.dumps([b.model_dump() if hasattr(b, "model_dump") else str(b) for b in response.content], indent=2),
+                )
+                return response
             except anthropic.APIStatusError as exc:
                 if exc.status_code == 529 and attempt < 4:
                     console.print(f"  [dim]API overloaded, retrying in {delay}s…[/dim]")

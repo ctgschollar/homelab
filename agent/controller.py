@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help"])
 
 
 @dataclass
@@ -174,6 +174,8 @@ class AgentController:
 
     async def handle_command(self, text: str) -> str:
         lower = text.lower().strip()
+        if lower == "help":
+            return self._cmd_help()
         if lower == "stop":
             return await self._cmd_stop()
         if lower == "start":
@@ -286,6 +288,23 @@ class AgentController:
         self._config.llm.available_models.remove(name)
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Removed `{name}` from available models."
+
+    def _cmd_help(self) -> str:
+        return (
+            "*Homelab Agent — Slack commands:*\n"
+            "• `help` — show this message\n"
+            "• `stop` — stop the agent and cancel all pending work\n"
+            "• `start` — resume the agent\n"
+            "• `queue` — show pending investigations\n"
+            "• `mode monitor` — notify only, don't act\n"
+            "• `mode act` — investigate and propose actions\n"
+            "• `model` — show active model\n"
+            "• `model list` — show all available models\n"
+            "• `model use <name>` — switch active model\n"
+            "• `model add <name>` — add model to available list\n"
+            "• `model remove <name>` — remove model from available list\n"
+            "\nAnything else is sent to the agent as a question."
+        )
 
     def _persist_active_model(self, model: str) -> None:
         try:

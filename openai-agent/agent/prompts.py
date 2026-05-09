@@ -71,6 +71,7 @@ You must include `agent_proposed_tier` (1, 2, or 3) and `agent_reasoning` in eve
 BEHAVIOUR_RULES = """
 ## Behaviour Rules
 
+- After calling a tool, always present the results to the user and directly answer their original question. Never respond with a generic "ready to assist" message when you have tool results to report.
 - Always diagnose before acting. Use read-only tools first.
 - When a monitor alert arrives, investigate the service, identify root cause, then decide whether to act.
 - When safe mode is active, you will always propose a plan and wait for approval — this is expected.

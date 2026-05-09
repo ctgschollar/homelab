@@ -379,7 +379,10 @@ class HomelabAgent:
     def __init__(self, config: AgentConfig) -> None:
         self._config = config
         self._model: str = config.anthropic.model
-        self._client = anthropic.AsyncAnthropic(api_key=config.anthropic.api_key or "")
+        _client_kwargs: dict = {"api_key": config.anthropic.api_key or ""}
+        if config.llm and config.llm.base_url:
+            _client_kwargs["base_url"] = config.llm.base_url
+        self._client = anthropic.AsyncAnthropic(**_client_kwargs)
         self._input_cost_per_mtok: float = config.anthropic.input_cost_per_mtok
         self._output_cost_per_mtok: float = config.anthropic.output_cost_per_mtok
 

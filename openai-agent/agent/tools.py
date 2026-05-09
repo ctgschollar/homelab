@@ -1,0 +1,924 @@
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import docker
+import httpx
+from rich.console import Console
+
+if TYPE_CHECKING:
+    from .config_schema import AgentConfig
+    from .rag import IncidentRAG
+
+_console = Console()
+
+
+# ---------------------------------------------------------------------------
+# OpenAI tool definitions (function-calling format)
+# ---------------------------------------------------------------------------
+
+TOOL_DEFINITIONS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_service_list",
+            "description": "List all Docker Swarm services with their replica counts and image.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "stack": {
+                        "type": "string",
+                        "description": "Optional stack name to filter services by.",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_service_inspect",
+            "description": "Inspect a specific Docker Swarm service for detailed configuration and task state.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "service_name": {
+                        "type": "string",
+                        "description": "The full service name (e.g. jellyfin_jellyfin).",
+                    }
+                },
+                "required": ["service_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_logs",
+            "description": "Read recent logs from a Docker Swarm service.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "service_name": {
+                        "type": "string",
+                        "description": "The full service name (e.g. jellyfin_jellyfin).",
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "description": "Number of log lines to retrieve (default 100).",
+                    },
+                },
+                "required": ["service_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the local filesystem (e.g. a compose file or config).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the file.",
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file on the local filesystem.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the file.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write.",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_service_scale",
+            "description": "Scale a Docker Swarm service to a given number of replicas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "service_name": {
+                        "type": "string",
+                        "description": "The full service name (e.g. jellyfin_jellyfin).",
+                    },
+                    "replicas": {
+                        "type": "integer",
+                        "description": "Desired number of replicas.",
+                    },
+                },
+                "required": ["service_name", "replicas"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_stack_deploy",
+            "description": (
+                "Deploy (or redeploy) a Docker stack from its compose file. "
+                "Compose file path defaults to /opt/homelab/<stack_name>/docker-compose.yaml."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "stack_name": {
+                        "type": "string",
+                        "description": "The stack name (e.g. jellyfin).",
+                    },
+                    "compose_path": {
+                        "type": "string",
+                        "description": "Optional override path to the compose file.",
+                    },
+                },
+                "required": ["stack_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_ansible_playbook",
+            "description": (
+                "Run an Ansible playbook against the homelab inventory. "
+                "Use this to deploy or configure infrastructure — preferred over editing files directly on nodes. "
+                "The repo path (e.g. /opt/homelab) is prepended automatically; pass playbook as a relative path "
+                "such as 'ansible/deploy-edge.yml' or 'ansible/site.yml'. "
+                "Always do a git pull first if you've just pushed changes to the repo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "playbook": {
+                        "type": "string",
+                        "description": "Playbook path relative to the repo root (e.g. 'ansible/deploy-edge.yml').",
+                    },
+                    "limit": {
+                        "type": "string",
+                        "description": "Optional --limit value (host or group, e.g. 'edge_nodes' or 'dks01.schollar.dev').",
+                    },
+                    "extra_vars": {
+                        "type": "object",
+                        "description": "Optional extra variables passed as -e JSON.",
+                    },
+                },
+                "required": ["playbook"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell",
+            "description": (
+                "Run a shell command locally or on a remote node via SSH. "
+                "Because this tool's tier is at your discretion, you MUST supply "
+                "agent_proposed_tier and agent_reasoning."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to run.",
+                    },
+                    "node": {
+                        "type": "string",
+                        "description": "Optional remote node hostname for SSH execution.",
+                    },
+                    "agent_proposed_tier": {
+                        "type": "integer",
+                        "description": "Your proposed safety tier (1, 2, or 3).",
+                        "enum": [1, 2, 3],
+                    },
+                    "agent_reasoning": {
+                        "type": "string",
+                        "description": "Your reasoning for the proposed tier.",
+                    },
+                },
+                "required": ["command", "agent_proposed_tier", "agent_reasoning"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_prometheus_alerts",
+            "description": "Fetch active alerts from Alertmanager.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "slack_notify",
+            "description": "Send a plain informational message to the Slack homelab channel.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message text (markdown supported).",
+                    }
+                },
+                "required": ["message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_incident_report",
+            "description": (
+                "Write a structured incident report to the reports directory, commit it, and push. "
+                "Use this as the FINAL action for any completed event — service failures, deployments, "
+                "config changes, user requests, investigations. "
+                "The tool writes the file, commits, and pushes in one step — do NOT call commit_config_updates after. "
+                "The tool reads the action log internally for the given time window — do NOT pass log content yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short descriptive title, 4-6 words (used in filename), e.g. 'jellyseerr-upgrade-to-seerr-failed'.",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags from the predefined list in config. Choose one event-type tag and one or more domain tags.",
+                    },
+                    "inciting_incident": {
+                        "type": "string",
+                        "description": "What triggered this event. One paragraph.",
+                    },
+                    "resolution": {
+                        "type": "string",
+                        "description": "What was done to resolve or complete it, including key commands. One paragraph.",
+                    },
+                    "tools_used": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Agent tool names used (e.g. ['docker_service_inspect', 'docker_stack_deploy']).",
+                    },
+                    "other_tools": {
+                        "type": "string",
+                        "description": "Other tools used outside the agent (git, ansible, python). One sentence. Optional.",
+                    },
+                    "rejected_plans": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "reason": {"type": "string"},
+                                "agent_reasoning": {"type": "string"},
+                            },
+                            "required": ["command", "reason"],
+                        },
+                        "description": (
+                            "Plans that were denied by the user during this incident. "
+                            "REQUIRED if any plans were rejected. "
+                            "Fill from the conversation — do not rely on the action log. "
+                            "Each entry: the proposed command, the user's rejection reason, and the agent's original reasoning."
+                        ),
+                    },
+                    "pitfalls": {
+                        "type": "string",
+                        "description": (
+                            "Mistakes, dead ends, or wrong assumptions made during the incident. "
+                            "REQUIRED if any plans were rejected — include the agent's flawed reasoning "
+                            "and what should have been done instead. One paragraph."
+                        ),
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": (
+                            "ISO8601 timestamp for action log slicing. "
+                            "Best-effort — the tool will correct obviously wrong dates using the server clock. "
+                            "Pass the time the triggering event was first received."
+                        ),
+                    },
+                },
+                "required": ["title", "tags", "inciting_incident", "resolution", "tools_used"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_pull",
+            "description": (
+                "Pull the latest changes from the remote into /opt/homelab using the PAT. "
+                "If the pull succeeds cleanly, returns the git output. "
+                "If there are merge conflicts, returns the list of conflicted files and their conflict markers. "
+                "On conflict: read each conflicted file, decide which version is correct, "
+                "write the resolved file using write_file, "
+                "then call commit_config_updates to stage and push. "
+                "Never leave the repo in a conflicted state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "commit_config_updates",
+            "description": (
+                "Commit and push changes made in /opt/homelab using the PAT. "
+                "Use this after editing any file in /opt/homelab so the change is persisted in git."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Git commit message describing what changed.",
+                    },
+                },
+                "required": ["message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_stack_rollback",
+            "description": (
+                "Roll back a Docker stack to the image tags that were running before the last deploy. "
+                "Uses the snapshot saved automatically by docker_stack_deploy. "
+                "Calls `docker service update --image` for each service in the stack."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "stack_name": {
+                        "type": "string",
+                        "description": "The stack name to roll back (e.g. jellyfin).",
+                    },
+                },
+                "required": ["stack_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_incidents",
+            "description": (
+                "Search past incident reports for similar problems. "
+                "Use this at the start of an incident to find relevant past resolutions "
+                "and avoid repeating known pitfalls."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Describe the current problem in a sentence or two.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results to return. Default 5.",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# ToolExecutor
+# ---------------------------------------------------------------------------
+
+class ToolExecutor:
+    def __init__(self, config: "AgentConfig", slack_client: Any, rag: "IncidentRAG | None" = None) -> None:
+        self._config = config
+        self._slack = slack_client
+        self._rag = rag
+        self._docker_socket = config.docker.socket
+        self._ssh_key = config.swarm.ssh_key
+        self._ssh_user = config.swarm.ssh_user
+        self._repo_path = config.ansible.repo_path
+        self._inventory = config.ansible.inventory
+        self._git_token = config.ansible.git_token or ""
+        self._git_author_name = config.ansible.git_author_name
+        self._git_author_email = config.ansible.git_author_email
+        self._rollback_state_path = Path(config.rollback.state_path)
+
+        self._reports_path = Path(self._repo_path) / "reports"
+        self._action_log_path = Path(config.action_log.path)
+
+        self._secrets: list[str] = [s for s in [self._git_token] if s]
+
+        self._shell_gate = asyncio.Semaphore(1)
+
+    def _scrub(self, text: str) -> str:
+        for secret in self._secrets:
+            text = text.replace(secret, "***")
+        return text
+
+    def _docker_client(self) -> docker.DockerClient:
+        return docker.DockerClient(base_url=self._docker_socket)
+
+    async def _authed_push_url(self, repo: str) -> str:
+        url = await self._run_subprocess(
+            ["git", "-C", repo, "remote", "get-url", "origin"], timeout=10
+        )
+        return url.replace("https://", f"https://{self._git_token}@", 1)
+
+    async def execute(self, tool_name: str, tool_input: dict) -> str:
+        method = getattr(self, f"_tool_{tool_name}", None)
+        if method is None:
+            return f"ERROR: Unknown tool '{tool_name}'"
+        return await method(tool_input)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    async def _run_subprocess(
+        self,
+        args: list[str],
+        timeout: int = 60,
+        cwd: str | None = None,
+        stream: bool = False,
+    ) -> str:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd,
+            )
+        except FileNotFoundError:
+            return f"ERROR: command not found: {args[0]}"
+        except OSError as exc:
+            return f"ERROR: failed to start process: {exc}"
+
+        if stream:
+            lines: list[str] = []
+            async def _read() -> None:
+                assert proc.stdout is not None
+                async for raw in proc.stdout:
+                    line = self._scrub(raw.decode(errors="replace").rstrip())
+                    lines.append(line)
+                    _console.print(f"  [dim]│ {line}[/dim]")
+            try:
+                await asyncio.wait_for(_read(), timeout=timeout)
+                await proc.wait()
+            except asyncio.TimeoutError:
+                proc.kill()
+                return f"ERROR: command timed out after {timeout}s"
+            return "\n".join(lines)
+
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return f"ERROR: command timed out after {timeout}s"
+        return self._scrub(stdout.decode().strip())
+
+    # ------------------------------------------------------------------
+    # Tool implementations
+    # ------------------------------------------------------------------
+
+    async def _tool_docker_service_list(self, inp: dict) -> str:
+        loop = asyncio.get_event_loop()
+        stack_filter = inp.get("stack")
+
+        def _list() -> str:
+            client = self._docker_client()
+            filters = {}
+            if stack_filter:
+                filters["label"] = f"com.docker.stack.namespace={stack_filter}"
+            services = client.services.list(filters=filters if filters else None)
+            if not services:
+                return "No services found."
+            lines = []
+            for svc in services:
+                spec = svc.attrs.get("Spec", {})
+                mode = spec.get("Mode", {})
+                replicated = mode.get("Replicated", {})
+                desired = replicated.get("Replicas", "?")
+                image = spec.get("TaskTemplate", {}).get("ContainerSpec", {}).get("Image", "?")
+                image = image.split("@")[0]
+                lines.append(f"{svc.name}  replicas={desired}  image={image}")
+            return "\n".join(lines)
+
+        return await loop.run_in_executor(None, _list)
+
+    async def _tool_docker_service_inspect(self, inp: dict) -> str:
+        service_name = inp["service_name"]
+        loop = asyncio.get_event_loop()
+
+        def _inspect() -> str:
+            client = self._docker_client()
+            services = client.services.list(filters={"name": service_name})
+            if not services:
+                return f"ERROR: Service '{service_name}' not found."
+            svc = services[0]
+            tasks = svc.tasks()
+            task_summary = []
+            for t in tasks:
+                state = t.get("Status", {}).get("State", "?")
+                desired = t.get("DesiredState", "?")
+                err = t.get("Status", {}).get("Err", "")
+                node_id = t.get("NodeID", "?")
+                task_summary.append(
+                    f"  task node={node_id} state={state} desired={desired}"
+                    + (f" err={err}" if err else "")
+                )
+            spec = json.dumps(svc.attrs.get("Spec", {}), indent=2)
+            return f"=== {service_name} ===\n{spec}\n\nTasks:\n" + "\n".join(task_summary)
+
+        return await loop.run_in_executor(None, _inspect)
+
+    async def _tool_read_logs(self, inp: dict) -> str:
+        service_name = inp["service_name"]
+        lines = inp.get("lines", 100)
+        return await self._run_subprocess([
+            "docker", "service", "logs",
+            "--no-trunc", f"--tail={lines}",
+            service_name,
+        ])
+
+    async def _tool_read_file(self, inp: dict) -> str:
+        path = inp["path"]
+        try:
+            with open(path) as f:
+                return f.read()
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    async def _tool_write_file(self, inp: dict) -> str:
+        path = inp["path"]
+        content = inp["content"]
+        try:
+            with open(path, "w") as f:
+                f.write(content)
+            return f"Written {len(content)} bytes to {path}."
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    async def _tool_docker_service_scale(self, inp: dict) -> str:
+        service_name = inp["service_name"]
+        replicas = inp["replicas"]
+        return await self._run_subprocess([
+            "docker", "service", "scale",
+            f"{service_name}={replicas}",
+        ])
+
+    def _load_rollback_state(self) -> dict:
+        if self._rollback_state_path.exists():
+            return json.loads(self._rollback_state_path.read_text())
+        return {}
+
+    def _save_rollback_state(self, state: dict) -> None:
+        self._rollback_state_path.write_text(json.dumps(state, indent=2))
+
+    def _snapshot_stack_images(self, stack_name: str) -> dict[str, str]:
+        client = self._docker_client()
+        services = client.services.list(
+            filters={"label": f"com.docker.stack.namespace={stack_name}"}
+        )
+        snapshot: dict[str, str] = {}
+        for svc in services:
+            image = (
+                svc.attrs.get("Spec", {})
+                .get("TaskTemplate", {})
+                .get("ContainerSpec", {})
+                .get("Image", "")
+            )
+            snapshot[svc.name] = image.split("@")[0]
+        return snapshot
+
+    async def _tool_docker_stack_deploy(self, inp: dict) -> str:
+        stack_name = inp["stack_name"]
+        compose_path = inp.get(
+            "compose_path",
+            f"{self._repo_path}/{stack_name}/docker-compose.yaml",
+        )
+        loop = asyncio.get_event_loop()
+        snapshot = await loop.run_in_executor(None, self._snapshot_stack_images, stack_name)
+        state = self._load_rollback_state()
+        state[stack_name] = {
+            "services": snapshot,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self._save_rollback_state(state)
+        return await self._run_subprocess([
+            "docker", "stack", "deploy",
+            "--with-registry-auth",
+            "-c", compose_path,
+            stack_name,
+        ])
+
+    async def _next_incident_number(self) -> str:
+        count = await self._rag.count_incidents()
+        return f"INC-{count + 1:04d}"
+
+    def _slice_action_log(self, start_time: str) -> list[dict]:
+        try:
+            start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            return []
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        entries: list[dict] = []
+        try:
+            with open(self._action_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        ts_str = entry.get("ts", "")
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                            if ts >= start_dt:
+                                entries.append(entry)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+        except FileNotFoundError:
+            pass
+        return entries
+
+    async def _tool_write_incident_report(self, tool_inp: dict) -> str:
+        if self._rag is None:
+            return "WARNING: RAG is not configured (AGENT_POSTGRES_DSN not set). Incident not stored."
+
+        inp = tool_inp
+        title = inp["title"]
+        tags = inp["tags"]
+        inciting = inp["inciting_incident"]
+        resolution = inp["resolution"]
+        tools_used = inp["tools_used"]
+        other_tools = inp.get("other_tools", "")
+        pitfalls = inp.get("pitfalls", "")
+        now_utc = datetime.now(timezone.utc)
+        raw_start = inp.get("start_time", "")
+        start_time_valid = False
+        start_time = raw_start
+        try:
+            parsed = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if abs((now_utc - parsed).total_seconds()) <= 86400:
+                start_time_valid = True
+        except (ValueError, AttributeError):
+            pass
+
+        inc_id = await self._next_incident_number()
+        log_entries = self._slice_action_log(start_time) if start_time_valid else []
+
+        explicit_rejected: list[dict] = inp.get("rejected_plans") or []
+        proposed_by_id: dict[str, dict] = {
+            e["plan_id"]: e for e in log_entries
+            if e.get("event") == "plan_proposed" and "plan_id" in e
+        }
+        log_rejected = [
+            {**proposed_by_id.get(e.get("plan_id", ""), {}), **e}
+            for e in log_entries
+            if e.get("event") == "plan_cancelled"
+        ]
+        rejected_plans = explicit_rejected if explicit_rejected else log_rejected
+
+        tags_str = ", ".join(tags)
+        tools_str = ", ".join(f"`{t}`" for t in tools_used)
+
+        narrative: list[str] = [
+            f"# {inc_id}: {title}",
+            "",
+            "**Inciting Incident**",
+            inciting,
+            "",
+            "**Resolution**",
+            resolution,
+        ]
+
+        if rejected_plans:
+            narrative += ["", "**Rejected Plans**"]
+            for i, e in enumerate(rejected_plans, 1):
+                if "input" in e:
+                    plan_inp = e.get("input", {})
+                    cmd = plan_inp.get("command", "")
+                    node = plan_inp.get("node", "")
+                    reason = e.get("reason", "")
+                    agent_reasoning = plan_inp.get("agent_reasoning", "")
+                else:
+                    cmd = e.get("command", "")
+                    node = ""
+                    reason = e.get("reason", "")
+                    agent_reasoning = e.get("agent_reasoning", "")
+                narrative.append(f"{i}. `{cmd}`{f' on `{node}`' if node else ''}")
+                if agent_reasoning:
+                    narrative.append(f"   _Agent reasoning:_ {agent_reasoning}")
+                narrative.append(f"   _Rejected:_ {reason}")
+
+        narrative += ["", "**Tools Used**", tools_str]
+        if other_tools:
+            narrative += ["", "**Other Tools**", other_tools]
+        if pitfalls:
+            narrative += ["", "**Pitfalls**", pitfalls]
+
+        slack_body = "\n".join(narrative)
+
+        await self._rag.store_incident({
+            "id": inc_id,
+            "title": title,
+            "date": now_utc,
+            "tags": tags,
+            "inciting_incident": inciting,
+            "resolution": resolution,
+            "tools_used": tools_used,
+        })
+
+        await self._slack.notify(slack_body)
+
+        return (
+            f"{inc_id} stored in database "
+            f"({len(log_entries)} action log entries, tags: {tags_str})."
+        )
+
+    async def _tool_search_incidents(self, tool_inp: dict) -> str:
+        if self._rag is None:
+            return "RAG is not configured (AGENT_POSTGRES_DSN not set). Cannot search incidents."
+
+        query = tool_inp["query"]
+        top_k = int(tool_inp.get("top_k", 5))
+        results = await self._rag.search_incidents(query, top_k=top_k)
+
+        if not results:
+            return "No past incidents found matching that query."
+
+        lines = [f"Found {len(results)} past incident(s):\n"]
+        for r in results:
+            date_str = r["date"].strftime("%Y-%m-%d") if hasattr(r["date"], "strftime") else str(r["date"])
+            tags_str = ", ".join(r["tags"])
+            lines += [
+                f"---",
+                f"**{r['id']}**: {r['title']}",
+                f"Date: {date_str} | Tags: {tags_str} | Similarity: {r['similarity']:.2f}",
+                f"**Inciting Incident:** {r['inciting_incident']}",
+                f"**Resolution:** {r['resolution']}",
+                "",
+            ]
+        return "\n".join(lines)
+
+    async def _tool_git_pull(self, inp: dict) -> str:
+        repo = self._repo_path
+        push_url = await self._authed_push_url(repo)
+        cmd = f'cd "{repo}" && git pull --no-rebase "{push_url}" 2>&1'
+        result = await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
+
+        if "CONFLICT" in result or "Merge conflict" in result:
+            conflicts_cmd = f'cd "{repo}" && git diff --name-only --diff-filter=U'
+            conflicted = await self._run_subprocess(["bash", "-c", conflicts_cmd], timeout=10)
+            files = [f.strip() for f in conflicted.splitlines() if f.strip()]
+            details = [result, "\nConflicted files:"]
+            for f in files:
+                try:
+                    content = (Path(repo) / f).read_text()
+                    details.append(f"\n--- {f} ---\n{content}")
+                except Exception:
+                    details.append(f"\n--- {f} --- (could not read)")
+            return "\n".join(details)
+
+        return result
+
+    async def _tool_commit_config_updates(self, inp: dict) -> str:
+        message = inp["message"]
+        repo = self._repo_path
+        author_name = self._git_author_name
+        author_email = self._git_author_email
+
+        push_url = await self._authed_push_url(repo)
+        git_opts = f'-c user.name="{author_name}" -c user.email="{author_email}"'
+        cmd = (
+            f'cd "{repo}" && git add -A && '
+            f'if git {git_opts} diff --cached --quiet; then '
+            f'echo "No changes to commit."; '
+            f'else '
+            f'git {git_opts} commit -m "{message}" && git push "{push_url}" && git update-ref refs/remotes/origin/main HEAD; '
+            f'fi'
+        )
+        return await self._run_subprocess(["bash", "-c", cmd], timeout=60, stream=True)
+
+    async def _tool_docker_stack_rollback(self, inp: dict) -> str:
+        stack_name = inp["stack_name"]
+        state = self._load_rollback_state()
+        entry = state.get(stack_name)
+        if not entry:
+            return f"ERROR: No rollback snapshot found for stack '{stack_name}'."
+
+        services: dict[str, str] = entry["services"]
+        if not services:
+            return f"ERROR: Rollback snapshot for '{stack_name}' is empty."
+
+        timestamp = entry.get("timestamp", "unknown")
+        lines = [f"Rolling back {stack_name} to snapshot from {timestamp}:"]
+        for svc_name, image in services.items():
+            result = await self._run_subprocess([
+                "docker", "service", "update",
+                "--with-registry-auth",
+                "--image", image,
+                svc_name,
+            ])
+            lines.append(f"  {svc_name}: {result.strip()}")
+
+        return "\n".join(lines)
+
+    async def _tool_run_ansible_playbook(self, inp: dict) -> str:
+        playbook = inp["playbook"]
+        limit = inp.get("limit")
+        extra_vars = inp.get("extra_vars")
+
+        cmd = ["ansible-playbook", "-i", self._inventory, playbook]
+        if limit:
+            cmd += ["--limit", limit]
+        if extra_vars:
+            cmd += ["-e", json.dumps(extra_vars)]
+
+        return await self._run_subprocess(cmd, timeout=300, cwd=self._repo_path, stream=True)
+
+    async def _tool_run_shell(self, inp: dict) -> str:
+        command = inp["command"]
+        node = inp.get("node")
+
+        if node:
+            args = [
+                "ssh",
+                "-i", self._ssh_key,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+                f"{self._ssh_user}@{node}",
+                command,
+            ]
+        else:
+            args = ["bash", "-c", command]
+
+        async with self._shell_gate:
+            return await self._run_subprocess(args, timeout=300, stream=True)
+
+    async def _tool_get_prometheus_alerts(self, inp: dict) -> str:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("http://alertmanager:9093/api/v2/alerts")
+            alerts = resp.json()
+
+        if not alerts:
+            return "No active alerts."
+
+        lines = []
+        for alert in alerts:
+            labels = alert.get("labels", {})
+            severity = labels.get("severity", "unknown").upper()
+            name = labels.get("alertname", "?")
+            summary = alert.get("annotations", {}).get("summary", "")
+            lines.append(f"[{severity}] {name}: {summary}")
+        return "\n".join(lines)
+
+    async def _tool_slack_notify(self, inp: dict) -> str:
+        message = inp["message"]
+        result = await self._slack.notify(message)
+        if result is None or not result.get("ok"):
+            error = result.get("error", "unknown") if result else "slack not configured"
+            return f"ERROR: Slack notification failed: {error}"
+        return "Slack notification sent."

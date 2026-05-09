@@ -1,6 +1,6 @@
 model:
   name: "qwen3.6:27b"
-  base_url: "http://192.168.88.144:11434/v1"
+  base_url: "http://192.168.88.144:11434"
   api_key: "ollama"
   # Pricing per million tokens (USD) — 0.0 for local models
   input_cost_per_mtok: 0.0

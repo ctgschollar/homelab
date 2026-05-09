@@ -3,12 +3,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "homelab-openai-agent"
+name = "homelab-ollama-agent"
 version = "0.1.0"
-description = "Homelab sysadmin agent using OpenAI-compatible API (Ollama)"
+description = "Homelab sysadmin agent using Ollama native API"
 requires-python = ">=3.12"
 dependencies = [
-    "openai>=1.0.0",
+    "ollama>=0.4.0",
     "docker>=7.0.0",
     "fastapi",
     "uvicorn[standard]",

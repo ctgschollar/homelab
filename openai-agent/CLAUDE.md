@@ -1,8 +1,8 @@
 # CLAUDE.md — openai-agent
 
-Same functionality as `agent/` but uses the OpenAI Python SDK targeting Ollama's
-`/v1/chat/completions` endpoint, which has better tool-calling support than the
-Anthropic-compatible endpoint.
+Same functionality as `agent/` but uses the Ollama Python SDK targeting Ollama's
+native `/api/chat` endpoint, which supports structured tool calling and `think: false`
+to disable qwen3 extended thinking.
 
 ## Commands
 
@@ -35,12 +35,13 @@ hatch run -e test pytest
 
 | | `agent/` | `openai-agent/` |
 |---|---|---|
-| SDK | `anthropic` | `openai` |
-| Endpoint | `/v1/messages` (Anthropic) | `/v1/chat/completions` (OpenAI) |
+| SDK | `anthropic` | `ollama` |
+| Endpoint | `/v1/messages` (Anthropic) | `/api/chat` (Ollama native) |
 | Tool format | `input_schema` | `function.parameters` |
-| Tool results | `role: user`, `type: tool_result` | `role: tool`, `tool_call_id` |
+| Tool results | `role: user`, `type: tool_result` | `role: tool`, `content` |
 | Config model key | `anthropic.model` | `model.name` |
 | Prompt caching | Yes (Anthropic-specific) | No |
+| Extended thinking | No | Disabled via `think: false` |
 
 ## Config
 
@@ -49,16 +50,13 @@ hatch run -e test pytest
 ```yaml
 model:
   name: "qwen3.6:27b"           # active model
-  base_url: "http://192.168.88.144:11434/v1"
-  api_key: "ollama"             # dummy key for Ollama
+  base_url: "http://192.168.88.144:11434"  # Ollama host (no /v1 suffix)
   input_cost_per_mtok: 0.0      # 0 for local models
   output_cost_per_mtok: 0.0
   available_models:
     - qwen3.6:27b
     - qwen2.5-coder:32b
 ```
-
-Set a real API key via `AGENT_LLM_API_KEY` env var (e.g. for cloud OpenAI).
 
 ## Architecture
 

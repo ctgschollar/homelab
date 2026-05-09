@@ -10,7 +10,7 @@ from typing import Any
 logger = logging.getLogger("homelab.agent")
 
 import httpx
-import openai
+import ollama
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from rich.console import Console
@@ -366,10 +366,8 @@ class HomelabAgent:
     def __init__(self, config: AgentConfig) -> None:
         self._config = config
         self._model: str = config.model.name
-        self._client = openai.AsyncOpenAI(
-            base_url=config.model.base_url,
-            api_key=config.model.api_key,
-        )
+        self._host: str = config.model.base_url
+        self._client = ollama.AsyncClient(host=config.model.base_url)
         self._input_cost_per_mtok: float = config.model.input_cost_per_mtok
         self._output_cost_per_mtok: float = config.model.output_cost_per_mtok
 
@@ -451,13 +449,13 @@ class HomelabAgent:
     # ------------------------------------------------------------------
 
     async def _api_create(self) -> Any:
-        """Call chat.completions.create with exponential backoff on 529 errors."""
+        """Call Ollama chat with exponential backoff on errors."""
         messages = [{"role": "system", "content": self._system_prompt}] + self._history
 
         logger.debug(
-            "API REQUEST model=%s base_url=%s history_turns=%d\nMESSAGES:\n%s\nTOOLS:\n%s",
+            "API REQUEST model=%s host=%s history_turns=%d\nMESSAGES:\n%s\nTOOLS:\n%s",
             self._model,
-            self._client.base_url,
+            self._host,
             len(self._history),
             json.dumps(messages, indent=2),
             json.dumps(TOOL_DEFINITIONS, indent=2),
@@ -466,25 +464,24 @@ class HomelabAgent:
         delay = 5
         for attempt in range(5):
             try:
-                response = await self._client.chat.completions.create(
+                response = await self._client.chat(
                     model=self._model,
-                    max_tokens=4096,
                     messages=messages,
                     tools=TOOL_DEFINITIONS,
-                    tool_choice="auto",
-                    extra_body={"think": False},
+                    think=False,
+                    stream=False,
                 )
                 logger.debug(
-                    "API RESPONSE finish_reason=%s usage=%s\nMESSAGE:\n%s",
-                    response.choices[0].finish_reason,
-                    response.usage,
-                    json.dumps(response.choices[0].message.model_dump(), indent=2),
+                    "API RESPONSE done_reason=%s tokens=(%d in, %d out)\nMESSAGE:\n%s",
+                    response.done_reason,
+                    response.prompt_eval_count or 0,
+                    response.eval_count or 0,
+                    json.dumps(response.message.model_dump(), indent=2),
                 )
                 return response
-            except openai.APIStatusError as exc:
-                if exc.status_code == 529 and attempt < 4:
-                    console.print(f"  [dim]API overloaded, retrying in {delay}s…[/dim]")
-                    await self._slack.notify(f"⏳ API overloaded — retrying in {delay}s…")
+            except ollama.ResponseError as exc:
+                if attempt < 4:
+                    console.print(f"  [dim]Ollama error, retrying in {delay}s… ({exc})[/dim]")
                     await asyncio.sleep(delay)
                     delay *= 2
                 else:
@@ -498,24 +495,21 @@ class HomelabAgent:
 
         for iteration in range(MAX_ITERATIONS):
             response = await self._api_create()
-            choice = response.choices[0]
-            message = choice.message
-            finish_reason = choice.finish_reason
+            message = response.message
+            done_reason = response.done_reason
 
-            total_input_tokens += response.usage.prompt_tokens
-            total_output_tokens += response.usage.completion_tokens
+            total_input_tokens += response.prompt_eval_count or 0
+            total_output_tokens += response.eval_count or 0
 
-            # Build assistant history entry from the response message
-            assistant_entry: dict = {"role": "assistant", "content": message.content}
+            # Build assistant history entry (Ollama native format)
+            assistant_entry: dict = {"role": "assistant", "content": message.content or ""}
             if message.tool_calls:
                 assistant_entry["tool_calls"] = [
                     {
-                        "id": tc.id,
-                        "type": "function",
                         "function": {
                             "name": tc.function.name,
                             "arguments": tc.function.arguments,
-                        },
+                        }
                     }
                     for tc in message.tool_calls
                 ]
@@ -529,7 +523,7 @@ class HomelabAgent:
                 console.print(label, end="")
                 console.print(message.content)
                 if live_to_slack and message.content.strip():
-                    if finish_reason == "stop":
+                    if done_reason == "stop":
                         slack_text = f"✅ {message.content}"
                     elif iteration == 0:
                         slack_text = f"📋 {message.content}"
@@ -541,24 +535,24 @@ class HomelabAgent:
                     except Exception as exc:
                         console.print(f"  [yellow]Slack notify failed: {exc}[/yellow]")
 
-            if finish_reason == "stop":
+            if done_reason == "stop":
                 break
 
-            if finish_reason == "tool_calls" and message.tool_calls:
+            if done_reason == "tool_calls" and message.tool_calls:
                 tool_calls = [
                     _ToolCall(
-                        id=tc.id,
+                        id=str(i),
                         name=tc.function.name,
-                        input=self._parse_tool_args(tc.function.arguments),
+                        input=tc.function.arguments,  # Already a dict in native API
                     )
-                    for tc in message.tool_calls
+                    for i, tc in enumerate(message.tool_calls)
                 ]
                 try:
                     tool_results = await self._handle_tool_calls(tool_calls, trigger)
                 except Exception as exc:
                     tool_results = [
-                        {"role": "tool", "tool_call_id": tc.id, "content": f"ERROR: {exc}"}
-                        for tc in tool_calls
+                        {"role": "tool", "content": f"ERROR: {exc}"}
+                        for _ in tool_calls
                     ]
                 for result_msg in tool_results:
                     self._history.append(result_msg)
@@ -588,13 +582,6 @@ class HomelabAgent:
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
         self._save_history()
         return ("" if live_to_slack else final_text), cost_usd
-
-    @staticmethod
-    def _parse_tool_args(arguments: str) -> dict:
-        try:
-            return json.loads(arguments)
-        except (json.JSONDecodeError, TypeError):
-            return {}
 
     async def _handle_tool_calls(
         self,
@@ -672,11 +659,10 @@ class HomelabAgent:
                 console.print(f"\n  [bold red]Tool error ({tc.name}):[/bold red] {res}")
                 console.print("  [dim]Waiting for agent to report and ask for instructions...[/dim]\n")
 
-        # Return one tool message per call (OpenAI format)
+        # Return one tool message per call (Ollama native format)
         return [
             {
                 "role": "tool",
-                "tool_call_id": tc.id,
                 "content": results.get(tc.id, "ERROR: result missing"),
             }
             for tc in tool_calls
@@ -833,15 +819,14 @@ class HomelabAgent:
                 self._history.pop(0)
                 continue
 
-            # Assistant message with tool_calls whose responses may have been trimmed
+            # Assistant message with tool_calls whose responses were trimmed off
             if role == "assistant" and first.get("tool_calls"):
-                expected_ids = {tc["id"] for tc in first["tool_calls"]}
-                present_ids = {
-                    m["tool_call_id"]
-                    for m in self._history[1:]
-                    if m.get("role") == "tool" and "tool_call_id" in m
-                }
-                if not expected_ids.issubset(present_ids):
+                n_calls = len(first["tool_calls"])
+                n_responses = sum(
+                    1 for m in self._history[1:n_calls + 1]
+                    if m.get("role") == "tool"
+                )
+                if n_responses < n_calls:
                     self._history.pop(0)
                     continue
 
@@ -876,4 +861,3 @@ class HomelabAgent:
 
     async def aclose(self) -> None:
         await self._slack.aclose()
-        await self._client.close()

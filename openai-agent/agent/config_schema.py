@@ -15,7 +15,7 @@ TierValue = Literal[1, 2, 3, "agent"]
 
 class ModelConfig(BaseModel):
     name: str
-    base_url: str = "http://192.168.88.144:11434/v1"
+    base_url: str = "http://192.168.88.144:11434"
     api_key: str = "ollama"
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0

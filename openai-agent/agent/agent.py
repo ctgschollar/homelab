@@ -536,10 +536,7 @@ class HomelabAgent:
                     except Exception as exc:
                         console.print(f"  [yellow]Slack notify failed: {exc}[/yellow]")
 
-            if done_reason == "stop":
-                break
-
-            if done_reason == "tool_calls" and message.tool_calls:
+            if message.tool_calls:
                 tool_calls = [
                     _ToolCall(
                         id=str(i),
@@ -558,6 +555,8 @@ class HomelabAgent:
                 for result_msg in tool_results:
                     self._history.append(result_msg)
                 self._trim_history()
+            else:
+                break  # No tool calls — done
 
         input_cost = total_input_tokens / 1_000_000 * self._input_cost_per_mtok
         output_cost = total_output_tokens / 1_000_000 * self._output_cost_per_mtok

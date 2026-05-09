@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model"])
 
 
 @dataclass
@@ -91,7 +91,8 @@ class AgentController:
     # ------------------------------------------------------------------
 
     def is_command(self, text: str) -> bool:
-        return text.lower().strip() in _COMMANDS
+        lower = text.lower().strip()
+        return lower in _COMMANDS or lower.startswith("model ")
 
     # ------------------------------------------------------------------
     # Event routing
@@ -183,6 +184,8 @@ class AgentController:
             return await self._cmd_mode("monitor")
         if lower == "mode act":
             return await self._cmd_mode("act")
+        if lower == "model" or lower.startswith("model "):
+            return await self._cmd_model(text.strip())
         return f"Unknown command: {text!r}"
 
     async def _cmd_stop(self) -> str:
@@ -219,6 +222,90 @@ class AgentController:
         if mode == "monitor":
             return "👁 Monitor-only mode. I'll notify but not act."
         return "⚡ Act mode. I'll investigate and propose actions."
+
+    async def _cmd_model(self, text: str) -> str:
+        parts = text.split(None, 2)
+        sub = parts[1].lower() if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else ""
+
+        if not sub:
+            return f"Current model: `{self._config.anthropic.model}`"
+        if sub == "list":
+            return self._cmd_model_list()
+        if sub == "use":
+            return await self._cmd_model_use(arg)
+        if sub == "add":
+            return await self._cmd_model_add(arg)
+        if sub == "remove":
+            return await self._cmd_model_remove(arg)
+        return (
+            f"Unknown model subcommand: `{sub}`. "
+            "Try: `model`, `model list`, `model use <name>`, `model add <name>`, `model remove <name>`"
+        )
+
+    def _cmd_model_list(self) -> str:
+        if not self._config.llm or not self._config.llm.available_models:
+            return "No models configured. Use `model add <name>` to add one."
+        current = self._config.anthropic.model
+        lines = ["*Available models:*"]
+        for m in self._config.llm.available_models:
+            marker = " ← active" if m == current else ""
+            lines.append(f"• `{m}`{marker}")
+        return "\n".join(lines)
+
+    async def _cmd_model_use(self, name: str) -> str:
+        if not name:
+            return "Usage: `model use <name>`"
+        available = self._config.llm.available_models if self._config.llm else []
+        if name not in available:
+            return f"`{name}` is not in available models. Use `model add {name}` first."
+        self._config.anthropic.model = name
+        self._persist_active_model(name)
+        agent = self.agents.get("default")
+        if agent is not None:
+            agent._model = name  # type: ignore[attr-defined]
+        return f"✅ Switched to `{name}`"
+
+    async def _cmd_model_add(self, name: str) -> str:
+        if not name:
+            return "Usage: `model add <name>`"
+        if self._config.llm is None:
+            return "No `llm` section in config. Add it manually first."
+        if name not in self._config.llm.available_models:
+            self._config.llm.available_models.append(name)
+            self._persist_available_models(self._config.llm.available_models)
+        return f"✅ Added `{name}` to available models."
+
+    async def _cmd_model_remove(self, name: str) -> str:
+        if not name:
+            return "Usage: `model remove <name>`"
+        if self._config.llm is None or name not in self._config.llm.available_models:
+            return f"`{name}` is not in available models."
+        if name == self._config.anthropic.model:
+            return f"Cannot remove `{name}` — it is the active model. Switch first with `model use <other>`."
+        self._config.llm.available_models.remove(name)
+        self._persist_available_models(self._config.llm.available_models)
+        return f"✅ Removed `{name}` from available models."
+
+    def _persist_active_model(self, model: str) -> None:
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("anthropic", {})["model"] = model
+            with open(self._config_path, "w") as f:
+                yaml.dump(data, f, sort_keys=False, default_flow_style=False)
+        except Exception as exc:
+            console.print(f"[yellow]Warning: could not persist active model to config: {exc}[/yellow]")
+
+    def _persist_available_models(self, models: list[str]) -> None:
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("llm", {})["available_models"] = models
+            with open(self._config_path, "w") as f:
+                yaml.dump(data, f, sort_keys=False, default_flow_style=False)
+        except Exception as exc:
+            console.print(f"[yellow]Warning: could not persist available models to config: {exc}[/yellow]")
 
     # ------------------------------------------------------------------
     # Grace period

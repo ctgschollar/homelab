@@ -12,7 +12,7 @@ def make_controller(mode: str = "act", grace_period: int = 10, tmp_path: Path | 
         AgentConfig, ControllerConfig, MonitorConfig, AnthropicConfig,
         SlackConfig, DockerConfig, SwarmConfig, AnsibleConfig,
         SafetyConfig, SafeModeResourcesConfig, ShellCommandGuardsConfig,
-        ActionLogConfig,
+        ActionLogConfig, LlmConfig,
     )
     config = AgentConfig.model_construct(
         controller=ControllerConfig(
@@ -21,6 +21,10 @@ def make_controller(mode: str = "act", grace_period: int = 10, tmp_path: Path | 
         ),
         monitor=MonitorConfig(poll_interval=30, grace_period_seconds=grace_period),
         anthropic=AnthropicConfig(model="claude-sonnet-4-20250514", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
+        llm=LlmConfig(
+            base_url="http://litellm.test",
+            available_models=["claude-sonnet-4-20250514", "ollama/gemma2:2b"],
+        ),
         slack=SlackConfig(channel="#test"),
         docker=DockerConfig(socket="unix:///var/run/docker.sock"),
         swarm=SwarmConfig(nodes=[], ssh_key="/tmp/key", ssh_user="root"),
@@ -260,3 +264,88 @@ async def test_cmd_queue_shows_pending_alert(tmp_path) -> None:
     # cleanup
     for alert in controller.deferred.values():
         alert.timer_task.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Model command tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_model_show_current(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model")
+    assert "claude-sonnet-4-20250514" in result
+
+
+@pytest.mark.asyncio
+async def test_model_list(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model list")
+    assert "gemma2" in result
+    assert "claude-sonnet" in result
+
+
+@pytest.mark.asyncio
+async def test_model_list_marks_active(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model list")
+    assert "← active" in result
+
+
+@pytest.mark.asyncio
+async def test_model_use_valid(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model use ollama/gemma2:2b")
+    assert "ollama/gemma2:2b" in result
+    assert controller._config.anthropic.model == "ollama/gemma2:2b"
+    assert agent._model == "ollama/gemma2:2b"
+
+
+@pytest.mark.asyncio
+async def test_model_use_invalid(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model use nonexistent:99b")
+    assert "not in available models" in result
+    assert controller._config.anthropic.model == "claude-sonnet-4-20250514"
+
+
+@pytest.mark.asyncio
+async def test_model_add(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model add ollama/llama3.1:8b")
+    assert "ollama/llama3.1:8b" in result
+    assert "ollama/llama3.1:8b" in controller._config.llm.available_models
+
+
+@pytest.mark.asyncio
+async def test_model_add_idempotent(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    await controller.handle_command("model add ollama/llama3.1:8b")
+    await controller.handle_command("model add ollama/llama3.1:8b")
+    assert controller._config.llm.available_models.count("ollama/llama3.1:8b") == 1
+
+
+@pytest.mark.asyncio
+async def test_model_remove(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model remove ollama/gemma2:2b")
+    assert "ollama/gemma2:2b" in result
+    assert "ollama/gemma2:2b" not in controller._config.llm.available_models
+
+
+@pytest.mark.asyncio
+async def test_model_remove_active_rejected(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model remove claude-sonnet-4-20250514")
+    assert "active model" in result.lower() or "cannot" in result.lower()
+    assert "claude-sonnet-4-20250514" in controller._config.llm.available_models
+
+
+@pytest.mark.asyncio
+async def test_model_is_command(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    assert controller.is_command("model") is True
+    assert controller.is_command("model list") is True
+    assert controller.is_command("model use foo:7b") is True
+    assert controller.is_command("model add foo:7b") is True
+    assert controller.is_command("model remove foo:7b") is True

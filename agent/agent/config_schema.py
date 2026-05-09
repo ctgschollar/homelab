@@ -20,6 +20,11 @@ class AnthropicConfig(BaseModel):
     output_cost_per_mtok: float
 
 
+class LlmConfig(BaseModel):
+    base_url: str
+    available_models: list[str] = []
+
+
 class SlackConfig(BaseModel):
     bot_token: Optional[str] = Field(default=None)
     signing_secret: Optional[str] = Field(default=None)
@@ -135,6 +140,7 @@ class AgentConfig(BaseSettings):
     model_config = SettingsConfigDict(populate_by_name=True)
 
     anthropic: AnthropicConfig
+    llm: Optional[LlmConfig] = None
     slack: SlackConfig
     docker: DockerConfig
     swarm: SwarmConfig

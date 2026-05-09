@@ -31,21 +31,29 @@
 
 - name: Uninstall existing claude-runner (ensures clean reinstall)
   command: pipx uninstall claude-runner
-  become_user: "{{ claude_user }}"
-  become_method: su
   environment:
     HOME: "{{ claude_user_home }}"
+    PIPX_HOME: "{{ claude_user_home }}/.local/share/pipx"
+    PIPX_BIN_DIR: "{{ claude_user_home }}/.local/bin"
   ignore_errors: true
 
 - name: Install claude-runner from Gitea PyPI
   command: >
     pipx install claude-runner
     --pip-args="--extra-index-url https://{{ gitea_pypi_user }}:{{ gitea_pypi_token }}@gitea.schollar.dev/api/packages/chris/pypi/simple/"
-  become_user: "{{ claude_user }}"
-  become_method: su
   environment:
     HOME: "{{ claude_user_home }}"
+    PIPX_HOME: "{{ claude_user_home }}/.local/share/pipx"
+    PIPX_BIN_DIR: "{{ claude_user_home }}/.local/bin"
   notify: restart claude-runner-api
+
+- name: Fix claude-runner install ownership
+  file:
+    path: "{{ claude_user_home }}/.local"
+    state: directory
+    owner: "{{ claude_user }}"
+    group: "{{ claude_user }}"
+    recurse: yes
 
 - name: Create base directories
   file:

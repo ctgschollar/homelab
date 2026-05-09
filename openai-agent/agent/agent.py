@@ -472,6 +472,7 @@ class HomelabAgent:
                     messages=messages,
                     tools=TOOL_DEFINITIONS,
                     tool_choice="auto",
+                    extra_body={"think": False},
                 )
                 logger.debug(
                     "API RESPONSE finish_reason=%s usage=%s\nMESSAGE:\n%s",

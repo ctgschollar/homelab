@@ -1,16 +1,17 @@
 anthropic:
-  model: "claude-sonnet-4-20250514"
+  model: "qwen3.6:27b"
   # Pricing per million tokens (USD) — update with: python config_cli.py pricing <input> <output>
-  input_cost_per_mtok: 3.0
-  output_cost_per_mtok: 15.0
+  input_cost_per_mtok: 0.0
+  output_cost_per_mtok: 0.0
 
 llm:
-  base_url: "https://litellm.schollar.dev"
+  base_url: "http://192.168.88.144:11434"
   available_models:
     - claude-sonnet-4-20250514
-    - ollama/gemma2:2b
-    - ollama/qwen2.5-coder:14b
-    - ollama/qwen2.5-coder:32b
+    - gemma2:2b
+    - qwen2.5-coder:14b
+    - qwen2.5-coder:32b
+    - qwen3.6:27b
 
 slack:
   channel: "#homelab"

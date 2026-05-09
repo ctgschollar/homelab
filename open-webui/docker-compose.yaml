@@ -1,0 +1,45 @@
+networks:
+  traefik-net:
+    external: true
+
+volumes:
+  open_webui_data:
+    driver: linbit/linstor-docker-volume
+    driver_opts:
+      size: "20G"
+      fs: "xfs"
+      replicas: "2"
+      storagepool: "pool_hdd"
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    env_file: /mnt/cephfs-configs/open-webui/.env
+    environment:
+      OLLAMA_BASE_URL: "http://192.168.88.144:11434"
+    volumes:
+      - open_webui_data:/app/backend/data
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+      update_config:
+        order: start-first
+        parallelism: 1
+        failure_action: rollback
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.open-webui.rule: "Host(`chat.schollar.dev`)"
+        traefik.http.routers.open-webui.entrypoints: websecure
+        traefik.http.routers.open-webui.tls.certresolver: cf
+        traefik.http.services.open-webui.loadbalancer.server.port: "8080"
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://chat.schollar.dev"

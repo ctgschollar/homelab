@@ -1,0 +1,42 @@
+networks:
+  traefik-net:
+    external: true
+
+configs:
+  litellm_config:
+    file: ./litellm_config.yaml
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    command: ["--config", "/app/config/litellm_config.yaml", "--port", "4000"]
+    env_file: /mnt/cephfs-configs/litellm/.env
+    environment:
+      LITELLM_LOG: "ERROR"
+    configs:
+      - source: litellm_config
+        target: /app/config/litellm_config.yaml
+    networks: [traefik-net]
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+      placement:
+        constraints:
+          - "node.labels.linstor==true"
+      update_config:
+        order: start-first
+        parallelism: 1
+        failure_action: rollback
+      labels:
+        traefik.enable: "true"
+        traefik.docker.network: traefik-net
+        traefik.http.routers.litellm.rule: "Host(`litellm.schollar.dev`)"
+        traefik.http.routers.litellm.entrypoints: websecure
+        traefik.http.routers.litellm.tls.certresolver: cf
+        traefik.http.services.litellm.loadbalancer.server.port: "4000"
+        prometheus.blackbox: "true"
+        metrics.probe_url: "https://litellm.schollar.dev"

@@ -24,9 +24,17 @@
     name: "@anthropic-ai/claude-code"
     global: yes
 
+- name: Uninstall existing claude-runner (ensures clean reinstall)
+  command: pipx uninstall claude-runner
+  become_user: "{{ claude_user }}"
+  become_method: su
+  environment:
+    HOME: "{{ claude_user_home }}"
+  ignore_errors: true
+
 - name: Install claude-runner from Gitea PyPI
   command: >
-    pipx install claude-runner --force
+    pipx install claude-runner
     --pip-args="--extra-index-url https://{{ gitea_pypi_user }}:{{ gitea_pypi_token }}@gitea.schollar.dev/api/packages/chris/pypi/simple/"
   become_user: "{{ claude_user }}"
   become_method: su

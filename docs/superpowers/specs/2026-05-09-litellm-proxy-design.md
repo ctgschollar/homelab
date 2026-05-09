@@ -5,7 +5,7 @@
 
 ## Overview
 
-Deploy LiteLLM as a Swarm stack to proxy requests from the homelab agent to either local Ollama models (running on the LLM laptop at `192.168.3.200`) or Anthropic's Claude API. Also deploy Open WebUI as a Swarm stack for interactive chat. Add a `model` Slack command to the agent for listing and switching models at runtime.
+Deploy LiteLLM as a Swarm stack to proxy requests from the homelab agent to either local Ollama models (running on the LLM laptop at `192.168.88.144`) or Anthropic's Claude API. Also deploy Open WebUI as a Swarm stack for interactive chat. Add a `model` Slack command to the agent for listing and switching models at runtime.
 
 ## Components
 
@@ -13,7 +13,7 @@ Deploy LiteLLM as a Swarm stack to proxy requests from the homelab agent to eith
 
 - Image: `ghcr.io/berriai/litellm:main-latest`
 - Config file (`litellm_config.yaml`) stored on a Linstor volume and mounted into the container
-- Wildcard passthrough: `model_list: [{model_name: "*", litellm_params: {model: "ollama_chat/*", api_base: "http://192.168.3.200:11434"}}]`
+- Wildcard passthrough: `model_list: [{model_name: "*", litellm_params: {model: "ollama_chat/*", api_base: "http://192.168.88.144:11434"}}]`
 - Claude models pass through to Anthropic via `ANTHROPIC_API_KEY` env var (Docker Swarm secret)
 - Traefik at `litellm.schollar.dev`, port 4000
 - No authentication (internal network only)
@@ -21,7 +21,7 @@ Deploy LiteLLM as a Swarm stack to proxy requests from the homelab agent to eith
 ### 2. `open-webui/` Swarm Stack
 
 - Image: `ghcr.io/open-webui/open-webui:main`
-- `OLLAMA_BASE_URL` set to `http://192.168.3.200:11434`
+- `OLLAMA_BASE_URL` set to `http://192.168.88.144:11434`
 - Linstor volume for persistent data (`pool_hdd`, 20G)
 - Traefik at `chat.schollar.dev`, port 8080
 - The existing systemd-based Open WebUI on the laptop is left untouched

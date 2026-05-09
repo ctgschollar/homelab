@@ -53,8 +53,8 @@ all:
       ansible_host: desktop.schollar.dev
       ansible_ip: 192.168.3.241
     llm:
-      ansible_host: 192.168.3.200
-      ansible_ip: 192.168.3.200
+      ansible_host: 192.168.88.144
+      ansible_ip: 192.168.88.144
   children:
     net:
       hosts:

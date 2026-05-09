@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    required_tools: [tea, jq, act]
+    required_tools: [tea, jq, act, docker]
 
   pre_tasks:
     - name: Install required tools

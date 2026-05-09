@@ -9,7 +9,7 @@ volumes:
       size: "20G"
       fs: "xfs"
       replicas: "2"
-      storagepool: "pool_hdd"
+      storagepool: "pool_ssd"
 
 services:
   open-webui:

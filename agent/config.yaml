@@ -4,6 +4,14 @@ anthropic:
   input_cost_per_mtok: 3.0
   output_cost_per_mtok: 15.0
 
+llm:
+  base_url: "https://litellm.schollar.dev"
+  available_models:
+    - claude-sonnet-4-20250514
+    - ollama/gemma2:2b
+    - ollama/qwen2.5-coder:14b
+    - ollama/qwen2.5-coder:32b
+
 slack:
   channel: "#homelab"
   # How long (seconds) to wait for Approve/Deny before a tier-2 plan times out.

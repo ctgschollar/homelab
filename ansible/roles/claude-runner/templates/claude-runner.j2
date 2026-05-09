@@ -30,6 +30,7 @@ Commands:
   add-account <name> <config-dir>    Register a Claude account config dir
   remove-account <name>              Deregister a Claude account
   list-accounts                      Show all registered Claude accounts
+  resume <name>                      Resume the last Claude session interactively
   add-watcher <name> <repo-path>     Start watching for <name>'s companion runner (runner must exist)
   remove-watcher <name>              Stop and remove the watcher for <name>
   list-watchers                      Show all registered watchers and their status
@@ -446,6 +447,49 @@ cmd_logs() {
     done
 }
 
+cmd_resume() {
+    local name="${1:?resume requires a name}"
+
+    if ! grep -q "^${name}=" "$REPOS_CONF" 2>/dev/null; then
+        echo "Error: no runner instance named '${name}'" >&2
+        exit 1
+    fi
+
+    local repo_path
+    repo_path=$(grep "^${name}=" "$REPOS_CONF" | cut -d= -f2-)
+
+    local log_file="${LOG_DIR}/${name}.log"
+    if [[ ! -f "$log_file" ]]; then
+        echo "Error: no log file found for '${name}': ${log_file}" >&2
+        exit 1
+    fi
+
+    local session_id
+    session_id=$(grep '"type":"result"' "$log_file" | tail -1 | jq -re '.session_id' 2>/dev/null || true)
+
+    if [[ -z "$session_id" ]]; then
+        echo "Error: no completed session found in log for '${name}'" >&2
+        exit 1
+    fi
+
+    if systemctl is-active --quiet "claude-runner@${name}.service" 2>/dev/null; then
+        echo "Warning: claude-runner@${name} is currently active — resuming may conflict with the running session."
+    fi
+
+    local env_file="${ENV_DIR}/${name}"
+    if [[ -f "$env_file" ]]; then
+        local config_dir
+        config_dir=$(grep '^CLAUDE_CONFIG_DIR=' "$env_file" | cut -d= -f2- || true)
+        if [[ -n "$config_dir" ]]; then
+            export CLAUDE_CONFIG_DIR="$config_dir"
+        fi
+    fi
+
+    echo "Resuming session ${session_id} in ${repo_path}"
+    cd "$repo_path"
+    exec claude --resume "$session_id"
+}
+
 case "${1:-}" in
     add)             shift; cmd_add_skill "$@" ;;
     remove)          shift; cmd_remove "$@" ;;
@@ -459,6 +503,7 @@ case "${1:-}" in
     add-account)     shift; cmd_add_account "$@" ;;
     remove-account)  shift; cmd_remove_account "$@" ;;
     list-accounts)   cmd_list_accounts ;;
+    resume)          shift; cmd_resume "$@" ;;
     add-watcher)     shift; cmd_add_watcher "$@" ;;
     remove-watcher)  shift; cmd_remove_watcher "$@" ;;
     list-watchers)   cmd_list_watchers ;;

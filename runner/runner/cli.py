@@ -212,6 +212,31 @@ def remove(name: str = typer.Argument(..., help="Session name")):
 
 
 @app.command()
+def resume(name: str = typer.Argument(..., help="Session name")):
+    """Re-enter the last Claude session interactively."""
+    with _api() as client:
+        r = client.get(f"/sessions/{name}")
+        if r.status_code == 404:
+            typer.echo(f"Error: session '{name}' not found", err=True)
+            raise typer.Exit(1)
+        r.raise_for_status()
+        session = r.json()
+
+    session_id = session.get("session_id")
+    if not session_id:
+        typer.echo(f"Error: session '{name}' has no session ID — run 'new' first", err=True)
+        raise typer.Exit(1)
+
+    repo_path = session["repo_path"]
+    if session.get("status") == "running":
+        typer.echo(f"Warning: session '{name}' is currently running autonomously — resuming may conflict.")
+
+    typer.echo(f"Resuming session {session_id} in {repo_path}")
+    os.chdir(repo_path)
+    os.execvp("claude", ["claude", "--resume", session_id])
+
+
+@app.command()
 def set_prompt(
     name: str = typer.Argument(..., help="Session name"),
     prompt: str = typer.Argument(..., help="Base prompt injected on every autonomous run"),

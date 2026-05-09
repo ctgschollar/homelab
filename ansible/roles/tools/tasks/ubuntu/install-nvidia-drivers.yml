@@ -6,6 +6,6 @@
     update_cache: yes
 
 - name: Install recommended NVIDIA drivers
-  command: ubuntu-drivers autoinstall
+  command: ubuntu-drivers install
   args:
     creates: /proc/driver/nvidia/version

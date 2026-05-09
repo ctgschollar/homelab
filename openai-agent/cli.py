@@ -503,7 +503,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.debug:
-        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        logging.getLogger("homelab.agent").setLevel(logging.DEBUG)
+        # Suppress noisy third-party loggers
+        for _noisy in ("urllib3", "docker", "httpx", "httpcore", "openai", "hpack", "h2"):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
     else:
         logging.basicConfig(level=logging.WARNING)
 

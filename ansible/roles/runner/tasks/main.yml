@@ -24,6 +24,11 @@
     name: "@anthropic-ai/claude-code"
     global: yes
 
+- name: Remove legacy bash claude-runner script if present
+  file:
+    path: /usr/local/bin/claude-runner
+    state: absent
+
 - name: Uninstall existing claude-runner (ensures clean reinstall)
   command: pipx uninstall claude-runner
   become_user: "{{ claude_user }}"

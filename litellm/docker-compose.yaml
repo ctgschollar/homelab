@@ -13,6 +13,7 @@ services:
     env_file: /mnt/cephfs-configs/litellm/.env
     environment:
       LITELLM_LOG: "ERROR"
+      OLLAMA_API_BASE: "http://192.168.88.144:11434"
     configs:
       - source: litellm_config
         target: /app/config/litellm_config.yaml

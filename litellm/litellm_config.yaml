@@ -11,6 +11,5 @@ model_list:
       model: "ollama_chat/qwen3-coder:30b"
       api_base: "http://192.168.88.144:11434"
       extra_body:
-        think: false
         options:
           num_ctx: 32768

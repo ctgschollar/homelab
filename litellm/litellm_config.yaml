@@ -1,7 +1,4 @@
 model_list:
-  - model_name: "claude-*"
-    litellm_params:
-      model: "anthropic/claude-*"
   - model_name: "ollama/*"
     litellm_params:
       model: "ollama_chat/*"

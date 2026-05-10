@@ -31,7 +31,7 @@ async def _reschedule_waiting_sessions() -> None:
             asyncio.create_task(_retry_at(
                 session.name, session.session_id, session.repo_path,
                 session.base_prompt, session.last_extra_prompt, reset_time,
-                session.model,
+                session.model, session.base_url, session.auth_token,
             ))
 
 
@@ -53,6 +53,8 @@ class UpdateSessionBody(BaseModel):
 class RunBody(BaseModel):
     extra_prompt: Optional[str] = None
     model: Optional[str] = None
+    base_url: Optional[str] = None
+    auth_token: Optional[str] = None
 
 
 @app.post("/sessions", status_code=201)
@@ -108,7 +110,7 @@ async def run_session(name: str, body: RunBody = RunBody()):
         raise HTTPException(409, f"Session '{name}' is already running")
     if not session.session_id:
         raise HTTPException(422, f"Session '{name}' has no Claude session ID — use PATCH to set one")
-    pid = await proc.start_run(name, session.session_id, session.repo_path, session.base_prompt, body.extra_prompt, body.model)
+    pid = await proc.start_run(name, session.session_id, session.repo_path, session.base_prompt, body.extra_prompt, body.model, body.base_url, body.auth_token)
     return {"pid": pid}
 
 

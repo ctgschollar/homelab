@@ -23,6 +23,8 @@ def _row_to_session(row) -> Session:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         model=row["model"] if "model" in row.keys() else None,
+        base_url=row["base_url"] if "base_url" in row.keys() else None,
+        auth_token=row["auth_token"] if "auth_token" in row.keys() else None,
     )
 
 
@@ -72,7 +74,7 @@ async def list_sessions() -> list[Session]:
 
 
 async def update_session(name: str, **kwargs) -> Optional[Session]:
-    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "retry_at", "last_extra_prompt", "updated_at", "model"}
+    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "retry_at", "last_extra_prompt", "updated_at", "model", "base_url", "auth_token"}
     unknown = set(kwargs.keys()) - ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Cannot update fields: {unknown}")

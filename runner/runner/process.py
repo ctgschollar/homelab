@@ -70,6 +70,8 @@ async def start_run(
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> int:
     log_file = get_base_dir() / "logs" / f"{name}.jsonl"
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -88,9 +90,17 @@ async def start_run(
     if model:
         cmd = cmd[:1] + ["--model", model] + cmd[1:]
 
+    env = os.environ.copy()
+    if base_url:
+        env["ANTHROPIC_BASE_URL"] = base_url
+        env.pop("ANTHROPIC_API_KEY", None)
+    if auth_token:
+        env["ANTHROPIC_AUTH_TOKEN"] = auth_token
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=repo_path,
+        env=env,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -106,7 +116,7 @@ async def start_run(
     finally:
         await db.close()
 
-    asyncio.create_task(_stream_to_file(proc, log_file, name, session_id, repo_path, base_prompt, extra_prompt, model))
+    asyncio.create_task(_stream_to_file(proc, log_file, name, session_id, repo_path, base_prompt, extra_prompt, model, base_url, auth_token))
     return proc.pid
 
 
@@ -119,6 +129,8 @@ async def _stream_to_file(
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> None:
     rate_limit_reset: Optional[datetime] = None
 
@@ -145,7 +157,7 @@ async def _stream_to_file(
             await db.commit()
         finally:
             await db.close()
-        asyncio.create_task(_retry_at(name, session_id, repo_path, base_prompt, extra_prompt, rate_limit_reset, model))
+        asyncio.create_task(_retry_at(name, session_id, repo_path, base_prompt, extra_prompt, rate_limit_reset, model, base_url, auth_token))
         return
 
     status = Status.DONE if proc.returncode == 0 else Status.ERROR
@@ -168,11 +180,13 @@ async def _retry_at(
     extra_prompt: Optional[str],
     reset_time: datetime,
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> None:
     delay = (reset_time - datetime.now(timezone.utc)).total_seconds()
     if delay > 0:
         await asyncio.sleep(delay)
-    await start_run(name, session_id, repo_path, base_prompt, extra_prompt, model)
+    await start_run(name, session_id, repo_path, base_prompt, extra_prompt, model, base_url, auth_token)
 
 
 async def stop_run(name: str, pid: int) -> None:

@@ -26,3 +26,5 @@ class Session:
     last_extra_prompt: Optional[str] = None
     blocked_reason: Optional[str] = None
     model: Optional[str] = None
+    base_url: Optional[str] = None
+    auth_token: Optional[str] = None

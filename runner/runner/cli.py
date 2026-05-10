@@ -110,11 +110,13 @@ def new(
 def run(
     name: str = typer.Argument(..., help="Session name"),
     extra_prompt: Optional[str] = typer.Argument(None, help="Extra instructions appended to base prompt"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override model (e.g. glm-4.7-flash-cc)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override (e.g. glm-4.7-flash-cc)"),
+    base_url: Optional[str] = typer.Option(None, "--base-url", help="ANTHROPIC_BASE_URL override (e.g. http://192.168.88.144:11434)"),
+    auth_token: Optional[str] = typer.Option(None, "--auth-token", help="ANTHROPIC_AUTH_TOKEN override (e.g. ollama)"),
 ):
     """Resume a session autonomously."""
     with _api() as client:
-        r = client.post(f"/sessions/{name}/run", json={"extra_prompt": extra_prompt, "model": model})
+        r = client.post(f"/sessions/{name}/run", json={"extra_prompt": extra_prompt, "model": model, "base_url": base_url, "auth_token": auth_token})
         if r.status_code == 404:
             typer.echo(f"Error: session '{name}' not found", err=True)
             raise typer.Exit(1)
@@ -215,7 +217,9 @@ def remove(name: str = typer.Argument(..., help="Session name")):
 @app.command()
 def resume(
     name: str = typer.Argument(..., help="Session name"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override model (e.g. glm-4.7-flash-cc)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model override (e.g. glm-4.7-flash-cc)"),
+    base_url: Optional[str] = typer.Option(None, "--base-url", help="ANTHROPIC_BASE_URL override (e.g. http://192.168.88.144:11434)"),
+    auth_token: Optional[str] = typer.Option(None, "--auth-token", help="ANTHROPIC_AUTH_TOKEN override (e.g. ollama)"),
 ):
     """Re-enter the last Claude session interactively."""
     with _api() as client:
@@ -240,6 +244,11 @@ def resume(
     cmd = ["claude", "--resume", session_id]
     if model:
         cmd = ["claude", "--model", model, "--resume", session_id]
+    if base_url:
+        os.environ["ANTHROPIC_BASE_URL"] = base_url
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+    if auth_token:
+        os.environ["ANTHROPIC_AUTH_TOKEN"] = auth_token
     os.execvp("claude", cmd)
 
 

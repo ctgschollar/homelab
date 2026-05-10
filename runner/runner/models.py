@@ -25,3 +25,4 @@ class Session:
     retry_at: Optional[str] = None
     last_extra_prompt: Optional[str] = None
     blocked_reason: Optional[str] = None
+    model: Optional[str] = None

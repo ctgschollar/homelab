@@ -30,7 +30,7 @@ async def init_db() -> None:
                 updated_at        TEXT NOT NULL
             )
         """)
-        for col, typedef in [("retry_at", "TEXT"), ("last_extra_prompt", "TEXT")]:
+        for col, typedef in [("retry_at", "TEXT"), ("last_extra_prompt", "TEXT"), ("model", "TEXT")]:
             try:
                 await db.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
             except Exception:

@@ -22,6 +22,7 @@ def _row_to_session(row) -> Session:
         last_extra_prompt=row["last_extra_prompt"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        model=row["model"] if "model" in row.keys() else None,
     )
 
 
@@ -71,7 +72,7 @@ async def list_sessions() -> list[Session]:
 
 
 async def update_session(name: str, **kwargs) -> Optional[Session]:
-    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "retry_at", "last_extra_prompt", "updated_at"}
+    ALLOWED_FIELDS = {"session_id", "status", "base_prompt", "pid", "retry_at", "last_extra_prompt", "updated_at", "model"}
     unknown = set(kwargs.keys()) - ALLOWED_FIELDS
     if unknown:
         raise ValueError(f"Cannot update fields: {unknown}")

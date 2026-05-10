@@ -110,10 +110,11 @@ def new(
 def run(
     name: str = typer.Argument(..., help="Session name"),
     extra_prompt: Optional[str] = typer.Argument(None, help="Extra instructions appended to base prompt"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override model (e.g. glm-4.7-flash-cc)"),
 ):
     """Resume a session autonomously."""
     with _api() as client:
-        r = client.post(f"/sessions/{name}/run", json={"extra_prompt": extra_prompt})
+        r = client.post(f"/sessions/{name}/run", json={"extra_prompt": extra_prompt, "model": model})
         if r.status_code == 404:
             typer.echo(f"Error: session '{name}' not found", err=True)
             raise typer.Exit(1)
@@ -212,7 +213,10 @@ def remove(name: str = typer.Argument(..., help="Session name")):
 
 
 @app.command()
-def resume(name: str = typer.Argument(..., help="Session name")):
+def resume(
+    name: str = typer.Argument(..., help="Session name"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override model (e.g. glm-4.7-flash-cc)"),
+):
     """Re-enter the last Claude session interactively."""
     with _api() as client:
         r = client.get(f"/sessions/{name}")
@@ -233,7 +237,10 @@ def resume(name: str = typer.Argument(..., help="Session name")):
 
     typer.echo(f"Resuming session {session_id} in {repo_path}")
     os.chdir(repo_path)
-    os.execvp("claude", ["claude", "--resume", session_id])
+    cmd = ["claude", "--resume", session_id]
+    if model:
+        cmd = ["claude", "--model", model, "--resume", session_id]
+    os.execvp("claude", cmd)
 
 
 @app.command()

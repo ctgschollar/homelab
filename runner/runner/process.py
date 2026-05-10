@@ -69,6 +69,7 @@ async def start_run(
     repo_path: str,
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
+    model: Optional[str] = None,
 ) -> int:
     log_file = get_base_dir() / "logs" / f"{name}.jsonl"
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,8 @@ async def start_run(
         "--verbose",
         "--print", prompt,
     ]
+    if model:
+        cmd = cmd[:1] + ["--model", model] + cmd[1:]
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -103,7 +106,7 @@ async def start_run(
     finally:
         await db.close()
 
-    asyncio.create_task(_stream_to_file(proc, log_file, name, session_id, repo_path, base_prompt, extra_prompt))
+    asyncio.create_task(_stream_to_file(proc, log_file, name, session_id, repo_path, base_prompt, extra_prompt, model))
     return proc.pid
 
 
@@ -115,6 +118,7 @@ async def _stream_to_file(
     repo_path: str,
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
+    model: Optional[str] = None,
 ) -> None:
     rate_limit_reset: Optional[datetime] = None
 
@@ -141,7 +145,7 @@ async def _stream_to_file(
             await db.commit()
         finally:
             await db.close()
-        asyncio.create_task(_retry_at(name, session_id, repo_path, base_prompt, extra_prompt, rate_limit_reset))
+        asyncio.create_task(_retry_at(name, session_id, repo_path, base_prompt, extra_prompt, rate_limit_reset, model))
         return
 
     status = Status.DONE if proc.returncode == 0 else Status.ERROR
@@ -163,11 +167,12 @@ async def _retry_at(
     base_prompt: Optional[str],
     extra_prompt: Optional[str],
     reset_time: datetime,
+    model: Optional[str] = None,
 ) -> None:
     delay = (reset_time - datetime.now(timezone.utc)).total_seconds()
     if delay > 0:
         await asyncio.sleep(delay)
-    await start_run(name, session_id, repo_path, base_prompt, extra_prompt)
+    await start_run(name, session_id, repo_path, base_prompt, extra_prompt, model)
 
 
 async def stop_run(name: str, pid: int) -> None:

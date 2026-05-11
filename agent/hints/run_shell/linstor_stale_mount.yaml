@@ -1,0 +1,19 @@
+pattern: "VolumeDriver.Mount: PathIsDevice failed"
+hint: |
+  Likely cause: stale Linstor volume mount preventing service restart.
+
+  The full error looks like:
+    failed to populate volume: error while mounting volume
+    '/var/lib/docker/plugins/<hash>/rootfs':
+    VolumeDriver.Mount: PathIsDevice failed for path "": stat : no such file or directory
+
+  Recovery procedure:
+  1. Identify which node the service is pinned to (check docker service ps <service_name>)
+  2. Scale the service to 0: docker service scale <service_name>=0
+  3. SSH to the affected node
+  4. Run lsblk and find the mountpoint for the stale volume — look for a drbd* device
+     mounted under /var/lib/docker/plugins/<hash>/propagated-mount/<volume_name>
+     Example output:
+       drbd1000  147:1000  0  50G  0 disk /var/lib/docker/plugins/<hash>/propagated-mount/postgres_postgres_data
+  5. Unmount it: umount /var/lib/docker/plugins/<hash>/propagated-mount/<volume_name>
+  6. Scale the service back up: docker service scale <service_name>=1

@@ -19,6 +19,7 @@ from agent.config_schema import (
     DockerConfig,
     EdgeConfig,
     HistoryConfig,
+    LlmConfig,
     MonitorConfig,
     RagConfig,
     RollbackConfig,
@@ -27,18 +28,20 @@ from agent.config_schema import (
     ShellCommandGuardsConfig,
     SlackConfig,
     SwarmConfig,
-    AnthropicConfig,
 )
 from agent.tools import ToolExecutor
 
 
 def _make_config() -> AgentConfig:
     return AgentConfig.model_construct(
-        anthropic=AnthropicConfig.model_construct(
+        llm=LlmConfig.model_construct(
+            provider="anthropic",
             api_key=None,
             model="claude-test",
             input_cost_per_mtok=3.0,
             output_cost_per_mtok=15.0,
+            base_url="",
+            available_models=[],
         ),
         slack=SlackConfig.model_construct(
             bot_token=None,

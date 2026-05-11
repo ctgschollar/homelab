@@ -9,13 +9,13 @@ def minimal_agent():
     """Build a HomelabAgent with the minimum viable config using model_construct."""
     from agent.agent import HomelabAgent
     from agent.config_schema import (
-        AgentConfig, AnthropicConfig, SlackConfig, DockerConfig,
+        AgentConfig, LlmConfig, SlackConfig, DockerConfig,
         SwarmConfig, AnsibleConfig, MonitorConfig, SafetyConfig,
         SafeModeResourcesConfig, ShellCommandGuardsConfig,
         ActionLogConfig, ControllerConfig,
     )
     config = AgentConfig.model_construct(
-        anthropic=AnthropicConfig(model="claude-sonnet-4-20250514", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
+        llm=LlmConfig(provider="anthropic", model="claude-sonnet-4-20250514", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
         slack=SlackConfig(channel="#test"),
         docker=DockerConfig(socket="unix:///var/run/docker.sock"),
         swarm=SwarmConfig(nodes=[], ssh_key="/tmp/key", ssh_user="root"),
@@ -31,7 +31,7 @@ def minimal_agent():
         ),
         action_log=ActionLogConfig(path="/tmp/action.log"),
     )
-    with patch("agent.agent.anthropic.AsyncAnthropic"):
+    with patch("agent.agent.create_backend"):
         agent = HomelabAgent(config)
     return agent
 

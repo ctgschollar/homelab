@@ -15,9 +15,9 @@ from rich.console import Console
 from agent_base import AgentBase
 
 if TYPE_CHECKING:
-    from agent.agent.config_schema import AgentConfig, ModelEntry
-    from agent.agent.rag import IncidentRAG
-    from agent.agent.slack import SlackClient
+    from agent.config_schema import AgentConfig, ModelEntry
+    from agent.rag import IncidentRAG
+    from agent.slack import SlackClient
 
 console = Console()
 
@@ -279,7 +279,7 @@ class AgentController:
             return "Usage: `model add <name>`"
         if any(m.name == name for m in self._config.llm.available_models):
             return f"✅ `{name}` already in available models."
-        from agent.agent.config_schema import ModelEntry
+        from agent.config_schema import ModelEntry
         self._config.llm.available_models.append(ModelEntry(name=name, provider="anthropic"))
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Added `{name}` (anthropic) to available models."

@@ -9,9 +9,9 @@ import pytest
 
 from agent.config_schema import (
     ActionLogConfig, AgentConfig, AnsibleConfig, ApprovalListenerConfig,
-    DockerConfig, EdgeConfig, HistoryConfig, MonitorConfig, RagConfig,
+    DockerConfig, EdgeConfig, HistoryConfig, LlmConfig, MonitorConfig, RagConfig,
     RollbackConfig, SafetyConfig, SafeModeResourcesConfig,
-    ShellCommandGuardsConfig, SlackConfig, SwarmConfig, AnthropicConfig,
+    ShellCommandGuardsConfig, SlackConfig, SwarmConfig,
 )
 from agent.tools import ToolExecutor
 from agent.rag import IncidentRAG
@@ -19,7 +19,7 @@ from agent.rag import IncidentRAG
 
 def _make_config() -> AgentConfig:
     return AgentConfig.model_construct(
-        anthropic=AnthropicConfig.model_construct(api_key=None, model="x", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
+        llm=LlmConfig.model_construct(provider="anthropic", api_key=None, model="x", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0, base_url="", available_models=[]),
         slack=SlackConfig.model_construct(bot_token=None, signing_secret=None, channel="#t", veto_window_seconds=300),
         docker=DockerConfig.model_construct(socket="unix:///var/run/docker.sock"),
         swarm=SwarmConfig.model_construct(nodes=[], ssh_key="/k", ssh_user="root"),

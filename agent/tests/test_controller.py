@@ -9,10 +9,10 @@ def make_controller(mode: str = "act", grace_period: int = 10, tmp_path: Path | 
     """Build an AgentController with mocked dependencies."""
     from controller import AgentController
     from agent.config_schema import (
-        AgentConfig, ControllerConfig, MonitorConfig, AnthropicConfig,
+        AgentConfig, ControllerConfig, MonitorConfig, ModelEntry, LlmConfig,
         SlackConfig, DockerConfig, SwarmConfig, AnsibleConfig,
         SafetyConfig, SafeModeResourcesConfig, ShellCommandGuardsConfig,
-        ActionLogConfig, LlmConfig,
+        ActionLogConfig,
     )
     config = AgentConfig.model_construct(
         controller=ControllerConfig(
@@ -20,10 +20,17 @@ def make_controller(mode: str = "act", grace_period: int = 10, tmp_path: Path | 
             whitelist_path=str(tmp_path / "whitelist.json") if tmp_path else "/tmp/whitelist_test.json",
         ),
         monitor=MonitorConfig(poll_interval=30, grace_period_seconds=grace_period),
-        anthropic=AnthropicConfig(model="claude-sonnet-4-20250514", input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
         llm=LlmConfig(
-            base_url="http://litellm.test",
-            available_models=["claude-sonnet-4-20250514", "ollama/gemma2:2b"],
+            provider="anthropic",
+            model="claude-sonnet-4-20250514",
+            input_cost_per_mtok=3.0,
+            output_cost_per_mtok=15.0,
+            available_models=[
+                ModelEntry(name="claude-sonnet-4-20250514", provider="anthropic",
+                           input_cost_per_mtok=3.0, output_cost_per_mtok=15.0),
+                ModelEntry(name="qwen3.6:27b", provider="ollama",
+                           base_url="http://192.168.88.144:11434"),
+            ],
         ),
         slack=SlackConfig(channel="#test"),
         docker=DockerConfig(socket="unix:///var/run/docker.sock"),
@@ -43,6 +50,7 @@ def make_controller(mode: str = "act", grace_period: int = 10, tmp_path: Path | 
     agent.chat = AsyncMock(return_value=("", 0.0))
     agent.cancel_all = AsyncMock()
     agent._slack = AsyncMock()
+    agent.switch_backend = MagicMock()
 
     slack = AsyncMock()
     slack.configured = True
@@ -275,14 +283,17 @@ async def test_model_show_current(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
     result = await controller.handle_command("model")
     assert "claude-sonnet-4-20250514" in result
+    assert "anthropic" in result
 
 
 @pytest.mark.asyncio
 async def test_model_list(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
     result = await controller.handle_command("model list")
-    assert "gemma2" in result
+    assert "qwen3.6" in result
+    assert "ollama" in result
     assert "claude-sonnet" in result
+    assert "anthropic" in result
 
 
 @pytest.mark.asyncio
@@ -295,10 +306,11 @@ async def test_model_list_marks_active(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_model_use_valid(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
-    result = await controller.handle_command("model use ollama/gemma2:2b")
-    assert "ollama/gemma2:2b" in result
-    assert controller._config.anthropic.model == "ollama/gemma2:2b"
-    assert agent._model == "ollama/gemma2:2b"
+    result = await controller.handle_command("model use qwen3.6:27b")
+    assert "qwen3.6:27b" in result
+    assert controller._config.llm.model == "qwen3.6:27b"
+    assert controller._config.llm.provider == "ollama"
+    agent.switch_backend.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -306,31 +318,32 @@ async def test_model_use_invalid(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
     result = await controller.handle_command("model use nonexistent:99b")
     assert "not in available models" in result
-    assert controller._config.anthropic.model == "claude-sonnet-4-20250514"
+    assert controller._config.llm.model == "claude-sonnet-4-20250514"
 
 
 @pytest.mark.asyncio
 async def test_model_add(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
-    result = await controller.handle_command("model add ollama/llama3.1:8b")
-    assert "ollama/llama3.1:8b" in result
-    assert "ollama/llama3.1:8b" in controller._config.llm.available_models
+    result = await controller.handle_command("model add llama3.1:8b")
+    assert "llama3.1:8b" in result
+    assert any(m.name == "llama3.1:8b" for m in controller._config.llm.available_models)
 
 
 @pytest.mark.asyncio
 async def test_model_add_idempotent(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
-    await controller.handle_command("model add ollama/llama3.1:8b")
-    await controller.handle_command("model add ollama/llama3.1:8b")
-    assert controller._config.llm.available_models.count("ollama/llama3.1:8b") == 1
+    await controller.handle_command("model add llama3.1:8b")
+    await controller.handle_command("model add llama3.1:8b")
+    count = sum(1 for m in controller._config.llm.available_models if m.name == "llama3.1:8b")
+    assert count == 1
 
 
 @pytest.mark.asyncio
 async def test_model_remove(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
-    result = await controller.handle_command("model remove ollama/gemma2:2b")
-    assert "ollama/gemma2:2b" in result
-    assert "ollama/gemma2:2b" not in controller._config.llm.available_models
+    result = await controller.handle_command("model remove qwen3.6:27b")
+    assert "qwen3.6:27b" in result
+    assert not any(m.name == "qwen3.6:27b" for m in controller._config.llm.available_models)
 
 
 @pytest.mark.asyncio
@@ -338,7 +351,7 @@ async def test_model_remove_active_rejected(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
     result = await controller.handle_command("model remove claude-sonnet-4-20250514")
     assert "active model" in result.lower() or "cannot" in result.lower()
-    assert "claude-sonnet-4-20250514" in controller._config.llm.available_models
+    assert any(m.name == "claude-sonnet-4-20250514" for m in controller._config.llm.available_models)
 
 
 @pytest.mark.asyncio

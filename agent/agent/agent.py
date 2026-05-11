@@ -814,6 +814,7 @@ class HomelabAgent:
             api_key=entry.api_key,
             input_cost_per_mtok=entry.input_cost_per_mtok,
             output_cost_per_mtok=entry.output_cost_per_mtok,
+            num_ctx=entry.num_ctx,
             available_models=self._config.llm.available_models,
         )
         self._backend = create_backend(new_config)
@@ -823,6 +824,11 @@ class HomelabAgent:
         self._history = []
         if self._history_path.exists():
             self._history_path.unlink()
+
+    def update_num_ctx(self, num_ctx: int) -> None:
+        """Update context window size without clearing history."""
+        if hasattr(self._backend, "_num_ctx"):
+            self._backend._num_ctx = num_ctx  # type: ignore[attr-defined]
 
     async def aclose(self) -> None:
         await self._slack.aclose()

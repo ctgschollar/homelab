@@ -331,18 +331,8 @@ class AgentController:
             self._config.llm.num_ctx = num_ctx
             self._persist_num_ctx(num_ctx)
             agent = self.agents.get("default")
-            if agent is not None and hasattr(agent, "switch_backend"):
-                from agent.config_schema import ModelEntry
-                entry = ModelEntry(
-                    name=self._config.llm.model,
-                    provider=self._config.llm.provider,
-                    base_url=self._config.llm.base_url,
-                    api_key=self._config.llm.api_key,
-                    input_cost_per_mtok=self._config.llm.input_cost_per_mtok,
-                    output_cost_per_mtok=self._config.llm.output_cost_per_mtok,
-                    num_ctx=num_ctx,
-                )
-                agent.switch_backend(entry)  # type: ignore[attr-defined]
+            if agent is not None and hasattr(agent, "update_num_ctx"):
+                agent.update_num_ctx(num_ctx)  # type: ignore[attr-defined]
             return f"✅ Context set to `{num_ctx}` tokens ({k}K)"
         return f"Unknown context subcommand: `{sub}`. Try: `context`, `context set <k>`"
 

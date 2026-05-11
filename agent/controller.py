@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context", "history"])
 
 
 @dataclass
@@ -92,7 +92,7 @@ class AgentController:
 
     def is_command(self, text: str) -> bool:
         lower = text.lower().strip()
-        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ")
+        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ") or lower.startswith("history ")
 
     # ------------------------------------------------------------------
     # Event routing
@@ -190,6 +190,8 @@ class AgentController:
             return await self._cmd_model(text.strip())
         if lower == "context" or lower.startswith("context "):
             return await self._cmd_context(text.strip())
+        if lower == "history" or lower.startswith("history "):
+            return await self._cmd_history(text.strip())
         return f"Unknown command: {text!r}"
 
     async def _cmd_stop(self) -> str:
@@ -336,6 +338,24 @@ class AgentController:
             return f"✅ Context set to `{num_ctx}` tokens ({k}K)"
         return f"Unknown context subcommand: `{sub}`. Try: `context`, `context set <k>`"
 
+    async def _cmd_history(self, text: str) -> str:
+        parts = text.split(None, 1)
+        sub = parts[1].lower().strip() if len(parts) > 1 else ""
+        agent = self.agents.get("default")
+        if sub == "clear":
+            if agent is not None and hasattr(agent, "clear_history"):
+                agent.clear_history()  # type: ignore[attr-defined]
+            return "✅ History cleared."
+        if sub == "summary":
+            if agent is None or not hasattr(agent, "get_summary"):
+                return "Agent does not support history summary."
+            summary = await agent.get_summary()  # type: ignore[attr-defined]
+            if not summary:
+                return "No history to summarize."
+            await self._slack.notify(f"📋 *History summary:*\n{summary}")
+            return summary
+        return "Usage: `history clear` | `history summary`"
+
     def _cmd_help(self) -> str:
         return (
             "*Homelab Agent — Slack commands:*\n"
@@ -352,6 +372,8 @@ class AgentController:
             "• `model remove <name>` — remove model from available list\n"
             "• `context` — show active context size\n"
             "• `context set <k>` — set context window (k in thousands: 1, 4, 8, 16, 32, 64, 128)\n"
+            "• `history clear` — clear conversation history\n"
+            "• `history summary` — summarize and post current history\n"
             "\nAnything else is sent to the agent as a question."
         )
 

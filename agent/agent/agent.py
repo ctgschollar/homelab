@@ -408,6 +408,7 @@ class HomelabAgent:
 
         self._history_path = Path(config.history.path)
         self._history: list[dict] = self._load_history()
+        self._summarize_threshold: int = config.llm.num_ctx // 2
         self._last_cost_breakdown: str = ""
         self._zar_rate: float | None = None
         self._zar_rate_fetched_at: datetime | None = None
@@ -487,6 +488,9 @@ class HomelabAgent:
             total_cache_read_tokens += response.cache_read_tokens
             self._history.append(response.assistant_history_entry)
             self._trim_history()
+
+            if response.input_tokens >= self._summarize_threshold:
+                await self._summarize_history()
 
             if response.text:
                 final_text = response.text
@@ -805,8 +809,54 @@ class HomelabAgent:
         if self._active_task is not None:
             self._active_task.cancel()
 
+    def clear_history(self) -> None:
+        self._history = []
+        if self._history_path.exists():
+            self._history_path.unlink()
+
+    async def get_summary(self) -> str:
+        if not self._history:
+            return ""
+        return await self._call_summary(self._history)
+
+    async def _summarize_history(self) -> str:
+        if not self._history:
+            return ""
+        keep = 3  # last 3 messages verbatim
+        to_summarize = self._history[:-keep] if len(self._history) > keep else self._history
+        recent = self._history[-keep:] if len(self._history) > keep else []
+        try:
+            summary = await self._call_summary(to_summarize)
+        except Exception as exc:
+            logger.error("Failed to summarize history: %s", exc)
+            return ""
+        self._history = [
+            {"role": "user", "content": "[Earlier conversation summary — use this as context]"},
+            {"role": "assistant", "content": summary},
+        ] + recent
+        try:
+            await self._slack.notify(f"📋 *History summarized* (context filling up):\n{summary}")
+        except Exception as exc:
+            logger.warning("Failed to notify Slack of summary: %s", exc)
+        return summary
+
+    async def _call_summary(self, messages: list[dict]) -> str:
+        summary_system = (
+            "Summarize this infrastructure troubleshooting conversation concisely. "
+            "Cover: what alert or question triggered the investigation, key findings "
+            "(errors, service states, commands run), actions taken or proposed, and "
+            "any unresolved issues. Include specific service names and error messages."
+        )
+        response = await self._backend.chat(summary_system, messages, [])
+        return response.text.strip()
+
     def switch_backend(self, entry: "ModelEntry") -> None:
-        """Switch to a different LLM backend. Clears history (formats differ between providers)."""
+        """Switch to a different LLM backend, preserving text-only history.
+
+        Tool call/result messages are stripped because Anthropic and Ollama use
+        incompatible formats for them. Plain assistant/user text is kept so the
+        new model has context for the ongoing investigation.
+        """
         new_config = LlmConfig(
             provider=entry.provider,
             model=entry.name,
@@ -821,9 +871,20 @@ class HomelabAgent:
         self._model = entry.name
         self._input_cost_per_mtok = entry.input_cost_per_mtok
         self._output_cost_per_mtok = entry.output_cost_per_mtok
-        self._history = []
-        if self._history_path.exists():
-            self._history_path.unlink()
+        self._history = [m for m in self._history if self._is_plain_text(m)]
+
+    @staticmethod
+    def _is_plain_text(msg: dict) -> bool:
+        """Return True if msg is a plain text user/assistant message with no tool data."""
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
+            return False
+        if msg.get("tool_calls"):
+            return False
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            return False
+        return bool(content)
 
     def update_num_ctx(self, num_ctx: int) -> None:
         """Update context window size without clearing history."""

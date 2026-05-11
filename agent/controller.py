@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context"])
 
 
 @dataclass
@@ -92,7 +92,7 @@ class AgentController:
 
     def is_command(self, text: str) -> bool:
         lower = text.lower().strip()
-        return lower in _COMMANDS or lower.startswith("model ")
+        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ")
 
     # ------------------------------------------------------------------
     # Event routing
@@ -188,6 +188,8 @@ class AgentController:
             return await self._cmd_mode("act")
         if lower == "model" or lower.startswith("model "):
             return await self._cmd_model(text.strip())
+        if lower == "context" or lower.startswith("context "):
+            return await self._cmd_context(text.strip())
         return f"Unknown command: {text!r}"
 
     async def _cmd_stop(self) -> str:
@@ -268,6 +270,7 @@ class AgentController:
         self._config.llm.api_key = entry.api_key
         self._config.llm.input_cost_per_mtok = entry.input_cost_per_mtok
         self._config.llm.output_cost_per_mtok = entry.output_cost_per_mtok
+        self._config.llm.num_ctx = entry.num_ctx
         self._persist_active_model(entry)
         agent = self.agents.get("default")
         if agent is not None and hasattr(agent, "switch_backend"):
@@ -305,6 +308,44 @@ class AgentController:
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Removed `{name}` from available models."
 
+    _VALID_CTX_K = frozenset([1, 4, 8, 16, 32, 64, 128])
+
+    async def _cmd_context(self, text: str) -> str:
+        parts = text.split(None, 2)
+        sub = parts[1].lower() if len(parts) > 1 else ""
+        arg = parts[2] if len(parts) > 2 else ""
+
+        if not sub:
+            k = self._config.llm.num_ctx // 1024
+            return f"Current context: `{self._config.llm.num_ctx}` tokens ({k}K)"
+        if sub == "set":
+            if not arg:
+                return f"Usage: `context set <k>` — valid values: {sorted(self._VALID_CTX_K)}"
+            try:
+                k = int(arg.strip())
+            except ValueError:
+                return f"Invalid value `{arg}` — must be an integer."
+            if k not in self._VALID_CTX_K:
+                return f"Invalid value `{k}` — valid values: {sorted(self._VALID_CTX_K)}"
+            num_ctx = k * 1024
+            self._config.llm.num_ctx = num_ctx
+            self._persist_num_ctx(num_ctx)
+            agent = self.agents.get("default")
+            if agent is not None and hasattr(agent, "switch_backend"):
+                from agent.config_schema import ModelEntry
+                entry = ModelEntry(
+                    name=self._config.llm.model,
+                    provider=self._config.llm.provider,
+                    base_url=self._config.llm.base_url,
+                    api_key=self._config.llm.api_key,
+                    input_cost_per_mtok=self._config.llm.input_cost_per_mtok,
+                    output_cost_per_mtok=self._config.llm.output_cost_per_mtok,
+                    num_ctx=num_ctx,
+                )
+                agent.switch_backend(entry)  # type: ignore[attr-defined]
+            return f"✅ Context set to `{num_ctx}` tokens ({k}K)"
+        return f"Unknown context subcommand: `{sub}`. Try: `context`, `context set <k>`"
+
     def _cmd_help(self) -> str:
         return (
             "*Homelab Agent — Slack commands:*\n"
@@ -319,6 +360,8 @@ class AgentController:
             "• `model use <name>` — switch active model\n"
             "• `model add <name> [provider]` — add model (provider: anthropic or ollama, default anthropic)\n"
             "• `model remove <name>` — remove model from available list\n"
+            "• `context` — show active context size\n"
+            "• `context set <k>` — set context window (k in thousands: 1, 4, 8, 16, 32, 64, 128)\n"
             "\nAnything else is sent to the agent as a question."
         )
 
@@ -333,11 +376,22 @@ class AgentController:
                 "api_key": entry.api_key,
                 "input_cost_per_mtok": entry.input_cost_per_mtok,
                 "output_cost_per_mtok": entry.output_cost_per_mtok,
+                "num_ctx": entry.num_ctx,
             })
             with open(self._config_path, "w") as f:
                 yaml.dump(data, f, sort_keys=False, default_flow_style=False)
         except Exception as exc:
             console.print(f"[yellow]Warning: could not persist active model to config: {exc}[/yellow]")
+
+    def _persist_num_ctx(self, num_ctx: int) -> None:
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("llm", {})["num_ctx"] = num_ctx
+            with open(self._config_path, "w") as f:
+                yaml.dump(data, f, sort_keys=False, default_flow_style=False)
+        except Exception as exc:
+            console.print(f"[yellow]Warning: could not persist num_ctx to config: {exc}[/yellow]")
 
     def _persist_available_models(self, models: list["ModelEntry"]) -> None:
         try:

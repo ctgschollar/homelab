@@ -20,6 +20,7 @@ class ModelEntry(BaseModel):
     api_key: str = ""
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
+    num_ctx: int = 16384
 
 
 class LlmConfig(BaseModel):
@@ -29,6 +30,7 @@ class LlmConfig(BaseModel):
     api_key: str = ""
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
+    num_ctx: int = 16384
     available_models: list[ModelEntry] = []
 
 

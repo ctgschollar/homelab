@@ -178,6 +178,7 @@ class OllamaBackend(LLMBackend):
     def __init__(self, config: "LlmConfig") -> None:
         self._client = ollama.AsyncClient(host=config.base_url or "http://localhost:11434")
         self._model = config.model
+        self._num_ctx = config.num_ctx
 
     @staticmethod
     def _to_ollama_tool(tool: dict) -> dict:
@@ -210,7 +211,7 @@ class OllamaBackend(LLMBackend):
                     tools=ollama_tools,
                     think=False,
                     stream=False,
-                    options={"num_ctx": 16384},
+                    options={"num_ctx": self._num_ctx},
                 )
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)",

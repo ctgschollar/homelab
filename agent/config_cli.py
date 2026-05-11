@@ -125,11 +125,11 @@ def cmd_set(args: list[str]) -> None:
     old = _get_nested(data, key_path)
     _set_nested(data, key_path, value)
 
-    if key_path == "anthropic.model" and isinstance(value, str):
+    if key_path == "llm.model" and isinstance(value, str):
         pricing = MODEL_PRICING.get(value)
         if pricing:
-            data["anthropic"]["input_cost_per_mtok"] = pricing[0]
-            data["anthropic"]["output_cost_per_mtok"] = pricing[1]
+            data["llm"]["input_cost_per_mtok"] = pricing[0]
+            data["llm"]["output_cost_per_mtok"] = pricing[1]
             print(f"  input_cost_per_mtok  → {pricing[0]}")
             print(f"  output_cost_per_mtok → {pricing[1]}")
         else:
@@ -212,10 +212,10 @@ def cmd_pricing(args: list[str]) -> None:
         print("ERROR: costs must be numbers (USD per million tokens)")
         sys.exit(1)
     data = _load_raw()
-    old_in = data["anthropic"].get("input_cost_per_mtok", "unset")
-    old_out = data["anthropic"].get("output_cost_per_mtok", "unset")
-    data["anthropic"]["input_cost_per_mtok"] = input_cost
-    data["anthropic"]["output_cost_per_mtok"] = output_cost
+    old_in = data.get("llm", {}).get("input_cost_per_mtok", "unset")
+    old_out = data.get("llm", {}).get("output_cost_per_mtok", "unset")
+    data.setdefault("llm", {})["input_cost_per_mtok"] = input_cost
+    data["llm"]["output_cost_per_mtok"] = output_cost
     _save_raw(data)
     print(f"  input_cost_per_mtok:  {old_in!r} → {input_cost}")
     print(f"  output_cost_per_mtok: {old_out!r} → {output_cost}")

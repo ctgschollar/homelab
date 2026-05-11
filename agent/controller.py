@@ -285,7 +285,11 @@ class AgentController:
         if any(m.name == name for m in self._config.llm.available_models):
             return f"✅ `{name}` already in available models."
         from agent.config_schema import ModelEntry
-        self._config.llm.available_models.append(ModelEntry(name=name, provider=provider))
+        base_url = ""
+        if provider == "ollama":
+            existing = next((m for m in self._config.llm.available_models if m.provider == "ollama"), None)
+            base_url = existing.base_url if existing else self._config.llm.base_url
+        self._config.llm.available_models.append(ModelEntry(name=name, provider=provider, base_url=base_url))
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Added `{name}` ({provider}) to available models."
 

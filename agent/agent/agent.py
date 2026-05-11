@@ -5,23 +5,27 @@ import os
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 logger = logging.getLogger("homelab.agent")
 
-import anthropic
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from rich.console import Console
 from rich.text import Text
 
-from .config_schema import AgentConfig
+from .config_schema import AgentConfig, LlmConfig
+from .hints import HintEngine
+from .llm import LLMBackend, LLMResponse, ToolCall, create_backend
 from .prompts import build_system_prompt
 from .rag import IncidentRAG
 from .safety import SafetyPolicy
 from .slack import SlackClient
 from .tools import TOOL_DEFINITIONS, ToolExecutor
+
+if TYPE_CHECKING:
+    from .config_schema import ModelEntry
 
 MAX_ITERATIONS = 15
 MAX_HISTORY_TURNS = 20  # trim when history exceeds this many turn-pairs
@@ -381,13 +385,11 @@ def build_approval_app(
 class HomelabAgent:
     def __init__(self, config: AgentConfig) -> None:
         self._config = config
-        self._model: str = config.anthropic.model
-        _client_kwargs: dict = {"api_key": config.anthropic.api_key or "no-key"}
-        if config.llm and config.llm.base_url:
-            _client_kwargs["base_url"] = config.llm.base_url
-        self._client = anthropic.AsyncAnthropic(**_client_kwargs)
-        self._input_cost_per_mtok: float = config.anthropic.input_cost_per_mtok
-        self._output_cost_per_mtok: float = config.anthropic.output_cost_per_mtok
+        self._backend: LLMBackend = create_backend(config.llm)
+        self._model: str = config.llm.model
+        self._input_cost_per_mtok: float = config.llm.input_cost_per_mtok
+        self._output_cost_per_mtok: float = config.llm.output_cost_per_mtok
+        self._hints = HintEngine(getattr(config, "hints_dir", "./hints"))
 
         self._slack = SlackClient(
             bot_token=config.slack.bot_token,
@@ -398,7 +400,6 @@ class HomelabAgent:
 
         self._logger = ActionLogger(config.action_log.path)
         self._safety = SafetyPolicy(config)
-        # RAG — only if DSN is configured. __init__ is sync; init_schema() called from cli.py.
         self._rag: IncidentRAG | None = (
             IncidentRAG(config.rag) if config.rag.dsn else None
         )
@@ -411,7 +412,7 @@ class HomelabAgent:
         self._zar_rate: float | None = None
         self._zar_rate_fetched_at: datetime | None = None
         self._system_prompt = build_system_prompt()
-        self._active_execution: dict | None = None  # set while a tool is executing
+        self._active_execution: dict | None = None
         self._active_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
@@ -470,51 +471,6 @@ class HomelabAgent:
     # Agentic loop
     # ------------------------------------------------------------------
 
-    async def _api_create(self) -> Any:
-        """Call messages.create with exponential backoff on overloaded (529) errors."""
-        # Cache the system prompt and tool definitions — identical on every call.
-        # Cache reads cost ~10% of normal input price; writes cost ~125%.
-        system = [{"type": "text", "text": self._system_prompt, "cache_control": {"type": "ephemeral"}}]
-        tools = list(TOOL_DEFINITIONS)
-        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
-
-        logger.debug(
-            "API REQUEST model=%s base_url=%s history_turns=%d\nSYSTEM:\n%s\nMESSAGES:\n%s\nTOOLS:\n%s",
-            self._model,
-            self._client.base_url,
-            len(self._history),
-            json.dumps(system, indent=2),
-            json.dumps(self._history, indent=2),
-            json.dumps([{k: v for k, v in t.items() if k != "cache_control"} for t in tools], indent=2),
-        )
-
-        delay = 5
-        for attempt in range(5):
-            try:
-                response = await self._client.messages.create(
-                    model=self._model,
-                    max_tokens=4096,
-                    system=system,
-                    messages=self._history,
-                    tools=tools,
-                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-                )
-                logger.debug(
-                    "API RESPONSE stop_reason=%s usage=%s\nCONTENT:\n%s",
-                    response.stop_reason,
-                    response.usage,
-                    json.dumps([b.model_dump() if hasattr(b, "model_dump") else str(b) for b in response.content], indent=2),
-                )
-                return response
-            except anthropic.APIStatusError as exc:
-                if exc.status_code == 529 and attempt < 4:
-                    console.print(f"  [dim]API overloaded, retrying in {delay}s…[/dim]")
-                    await self._slack.notify(f"⏳ Anthropic API overloaded — retrying in {delay}s…")
-                    await asyncio.sleep(delay)
-                    delay *= 2
-                else:
-                    raise
-
     async def _run_loop(self, trigger: str) -> tuple[str, float]:
         final_text = ""
         total_input_tokens = 0
@@ -524,51 +480,42 @@ class HomelabAgent:
         live_to_slack = not trigger.startswith("cli:")
 
         for iteration in range(MAX_ITERATIONS):
-            response = await self._api_create()
-            total_input_tokens += response.usage.input_tokens
-            total_output_tokens += response.usage.output_tokens
-            total_cache_write_tokens += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-            total_cache_read_tokens += getattr(response.usage, "cache_read_input_tokens", 0) or 0
-            self._history.append({"role": "assistant", "content": response.content})
+            response = await self._backend.chat(self._system_prompt, self._history, TOOL_DEFINITIONS)
+            total_input_tokens += response.input_tokens
+            total_output_tokens += response.output_tokens
+            total_cache_write_tokens += response.cache_write_tokens
+            total_cache_read_tokens += response.cache_read_tokens
+            self._history.append(response.assistant_history_entry)
             self._trim_history()
 
-            # Print text blocks and stream to Slack for non-CLI triggers
-            for block in response.content:
-                if block.type == "text":
-                    final_text = block.text
-                    label = Text("Agent: ", style="bold cyan")
-                    console.print(label, end="")
-                    console.print(block.text)
-                    if live_to_slack and block.text.strip():
-                        if response.stop_reason == "end_turn":
-                            slack_text = f"✅ {block.text}"
-                        elif iteration == 0:
-                            slack_text = f"📋 {block.text}"
-                        else:
-                            slack_text = f"🔍 {block.text}"
-                        console.print(f"  [dim cyan]→ Slack notify ({len(slack_text)} chars)[/dim cyan]")
-                        try:
-                            await self._slack.notify(slack_text)
-                        except Exception as exc:
-                            console.print(f"  [yellow]Slack notify failed: {exc}[/yellow]")
+            if response.text:
+                final_text = response.text
+                label = Text("Agent: ", style="bold cyan")
+                console.print(label, end="")
+                console.print(response.text)
+                if live_to_slack and response.text.strip():
+                    if response.stop:
+                        slack_text = f"✅ {response.text}"
+                    elif iteration == 0:
+                        slack_text = f"📋 {response.text}"
+                    else:
+                        slack_text = f"🔍 {response.text}"
+                    console.print(f"  [dim cyan]→ Slack notify ({len(slack_text)} chars)[/dim cyan]")
+                    try:
+                        await self._slack.notify(slack_text)
+                    except Exception as exc:
+                        console.print(f"  [yellow]Slack notify failed: {exc}[/yellow]")
 
-            if response.stop_reason == "end_turn":
+            if response.stop:
                 break
 
-            if response.stop_reason == "tool_use":
-                try:
-                    tool_results = await self._handle_tool_calls(response.content, trigger)
-                except Exception as exc:
-                    # Always append error tool_results to keep history valid.
-                    # An unmatched tool_use block corrupts all subsequent API calls.
-                    # Continuing the loop lets the agent see the error and respond.
-                    tool_results = [
-                        {"type": "tool_result", "tool_use_id": b.id, "content": f"ERROR: {exc}"}
-                        for b in response.content
-                        if hasattr(b, "type") and b.type == "tool_use"
-                    ]
-                self._history.append({"role": "user", "content": tool_results})
-                self._trim_history()
+            try:
+                results = await self._handle_tool_calls(response.tool_calls, trigger)
+            except Exception as exc:
+                results = [(tc.id, f"ERROR: {exc}") for tc in response.tool_calls]
+            for msg in self._backend.format_tool_results(results):
+                self._history.append(msg)
+            self._trim_history()
 
         input_cost   = total_input_tokens       / 1_000_000 * self._input_cost_per_mtok
         write_cost   = total_cache_write_tokens  / 1_000_000 * self._input_cost_per_mtok * 1.25
@@ -600,44 +547,35 @@ class HomelabAgent:
         self._last_cost_breakdown = breakdown
         await self._logger.log_cost(cost_usd, total_input_tokens, total_output_tokens, trigger)
         self._save_history()
-        # Return empty string when we've already live-posted all text to Slack,
-        # so event_consumer doesn't post the final message a second time.
         return ("" if live_to_slack else final_text), cost_usd
 
     async def _handle_tool_calls(
         self,
-        blocks: list[Any],
+        tool_calls: list[ToolCall],
         trigger: str,
-    ) -> list[dict]:
-        tool_use_blocks = [b for b in blocks if b.type == "tool_use"]
-
-        # Separate tier-1 read-only calls from mutating calls
-        tier1_blocks = []
-        mutating_blocks = []
+    ) -> list[tuple[str, str]]:
+        tier1_calls: list[ToolCall] = []
+        mutating_calls: list[ToolCall] = []
         resolved_map: dict[str, Any] = {}
 
-        for block in tool_use_blocks:
-            inp = block.input or {}
+        for tc in tool_calls:
+            inp = tc.input
             agent_tier = inp.get("agent_proposed_tier")
             agent_reason = inp.get("agent_reasoning")
-            target = self._infer_target_resource(block.name, inp)
+            target = self._infer_target_resource(tc.name, inp)
 
             resolved = self._safety.resolve_tier(
-                block.name,
+                tc.name,
                 target,
                 agent_tier,
                 agent_reason,
-                command=inp.get("command") if block.name == "run_shell" else None,
+                command=inp.get("command") if tc.name == "run_shell" else None,
             )
-            resolved_map[block.id] = resolved
+            resolved_map[tc.id] = resolved
 
-            # Log tier reasoning for "agent"-discretion tools
-            if (
-                agent_tier is not None
-                and self._safety.log_agent_tier_reasoning
-            ):
+            if agent_tier is not None and self._safety.log_agent_tier_reasoning:
                 await self._logger.log_tier_reasoning(
-                    tool=block.name,
+                    tool=tc.name,
                     agent_proposed_tier=agent_tier,
                     reasoning=agent_reason or "",
                     safe_mode_active=resolved.safe_mode_active,
@@ -648,76 +586,66 @@ class HomelabAgent:
                 )
 
             if resolved.tier == 1:
-                tier1_blocks.append(block)
+                tier1_calls.append(tc)
             else:
-                mutating_blocks.append(block)
+                mutating_calls.append(tc)
 
         results: dict[str, str] = {}
 
-        # Gather tier-1 calls concurrently
-        if tier1_blocks:
-            async def _exec_tier1(b: Any) -> tuple[str, str]:
-                self._print_tool_call(b, resolved_map[b.id])
-                res = await self._tools.execute(b.name, b.input or {})
+        if tier1_calls:
+            async def _exec_tier1(tc: ToolCall) -> tuple[str, str]:
+                self._print_tool_call(tc, resolved_map[tc.id])
+                res = await self._tools.execute(tc.name, tc.input)
+                res = self._hints.enrich(tc.name, res)
                 await self._logger.log_action_taken(
-                    tool=b.name,
-                    tool_input=b.input or {},
+                    tool=tc.name,
+                    tool_input=tc.input,
                     outcome=res,
-                    tier=resolved_map[b.id].tier,
-                    safe_mode_active=resolved_map[b.id].safe_mode_active,
+                    tier=resolved_map[tc.id].tier,
+                    safe_mode_active=resolved_map[tc.id].safe_mode_active,
                     trigger=trigger,
                 )
-                return b.id, res
+                return tc.id, res
 
-            gathered = await asyncio.gather(*[_exec_tier1(b) for b in tier1_blocks])
-            for bid, res in gathered:
-                results[bid] = res
+            gathered = await asyncio.gather(*[_exec_tier1(tc) for tc in tier1_calls])
+            for tid, res in gathered:
+                results[tid] = res
 
-        # Sequential gated calls for tier 2/3
-        for block in mutating_blocks:
-            resolved = resolved_map[block.id]
-            self._print_tool_call(block, resolved)
-            res = await self._handle_approval_flow(block, resolved, trigger)
-            results[block.id] = res
+        for tc in mutating_calls:
+            resolved = resolved_map[tc.id]
+            self._print_tool_call(tc, resolved)
+            res = await self._handle_approval_flow(tc, resolved, trigger)
+            results[tc.id] = res
 
-        # Print errors prominently before returning to the loop
-        for b in tool_use_blocks:
-            res = results.get(b.id, "ERROR: result missing")
+        for tc in tool_calls:
+            res = results.get(tc.id, "ERROR: result missing")
             if res.startswith("ERROR:"):
-                console.print(f"\n  [bold red]Tool error ({b.name}):[/bold red] {res}")
+                console.print(f"\n  [bold red]Tool error ({tc.name}):[/bold red] {res}")
                 console.print("  [dim]Waiting for agent to report and ask for instructions...[/dim]\n")
 
-        # Reconstruct in original order
-        return [
-            {
-                "type": "tool_result",
-                "tool_use_id": b.id,
-                "content": results.get(b.id, "ERROR: result missing"),
-            }
-            for b in tool_use_blocks
-        ]
+        return [(tc.id, results.get(tc.id, "ERROR: result missing")) for tc in tool_calls]
 
     async def _handle_approval_flow(
         self,
-        block: Any,
+        tc: ToolCall,
         resolved: Any,
         trigger: str,
     ) -> str:
         plan_id = f"plan-{secrets.token_hex(4)}"
-        tool_input = block.input or {}
-        plan_text = self._format_plan(block.name, tool_input)
+        tool_input = tc.input
+        plan_text = self._format_plan(tc.name, tool_input)
         veto_seconds = self._veto_window if resolved.tier == 2 else None
 
         message_ref = await self._slack.notify_plan(
             plan_id,
             plan_text,
             veto_seconds,
-            tool_name=block.name,
+            tool_name=tc.name,
             command=tool_input.get("command", ""),
         )
         await self._logger.log_plan_proposed(
             plan_id=plan_id,
-            tool=block.name,
+            tool=tc.name,
             tool_input=tool_input,
             plan_text=plan_text,
             tier=resolved.tier,
@@ -725,8 +653,6 @@ class HomelabAgent:
             trigger=trigger,
         )
 
-        # Always show plan on terminal; when Slack is not configured this is
-        # the only approval channel available.
         console.print(f"\n  [bold yellow]Plan ID:[/bold yellow] {plan_id}")
         console.print(f"  [yellow]{plan_text}[/yellow]")
         if veto_seconds is not None:
@@ -734,7 +660,7 @@ class HomelabAgent:
         else:
             console.print(f"  Type [bold]y[/bold] to approve, [bold]n[/bold] to deny, or a message to cancel with context")
 
-        fut = self._pending.register(plan_id, block.name, plan_text, resolved.tier)
+        fut = self._pending.register(plan_id, tc.name, plan_text, resolved.tier)
         approved: bool
         reason: str
 
@@ -749,24 +675,24 @@ class HomelabAgent:
             self._pending.resolve(plan_id, False, "timeout")
 
         if not approved:
-            await self._logger.log_plan_cancelled(plan_id, block.name, reason)
-            # Surface user's message to the agent so it can re-plan with context
+            await self._logger.log_plan_cancelled(plan_id, tc.name, reason)
             detail = f" — user said: {reason}" if reason and not reason.startswith("slack:") and reason != "timeout" else ""
             return f"[cancelled: {reason}{detail}]"
 
-        await self._logger.log_plan_approved(plan_id, block.name)
+        await self._logger.log_plan_approved(plan_id, tc.name)
         self._active_execution = {
             "plan_id": plan_id,
-            "tool": block.name,
+            "tool": tc.name,
             "input": {k: v for k, v in tool_input.items() if k not in ("agent_proposed_tier", "agent_reasoning")},
             "started_at": datetime.now(timezone.utc),
         }
         try:
-            result = await self._tools.execute(block.name, tool_input)
+            result = await self._tools.execute(tc.name, tool_input)
+            result = self._hints.enrich(tc.name, result)
         finally:
             self._active_execution = None
         await self._logger.log_action_taken(
-            tool=block.name,
+            tool=tc.name,
             tool_input=tool_input,
             outcome=result,
             tier=resolved.tier,
@@ -797,13 +723,12 @@ class HomelabAgent:
                               if k not in ("agent_proposed_tier", "agent_reasoning"))
         return f"*Tool:* `{tool_name}`\n*Inputs:*\n{inp_lines}"
 
-    def _print_tool_call(self, block: Any, resolved: Any) -> None:
-        inp = block.input or {}
+    def _print_tool_call(self, tc: ToolCall, resolved: Any) -> None:
         params = ", ".join(
-            f"{k}={v}" for k, v in inp.items()
+            f"{k}={v}" for k, v in tc.input.items()
             if k not in ("agent_proposed_tier", "agent_reasoning")
         )
-        console.print(f"  [yellow]> {block.name}({params})[/yellow]")
+        console.print(f"  [yellow]> {tc.name}({params})[/yellow]")
         if resolved.safe_mode_active:
             original = f"would have been tier {resolved.original_tier}" if resolved.original_tier is not None else "original tier unknown"
             console.print(f"  [bold yellow]  [SAFE MODE — tier forced to 3, {original}][/bold yellow]")
@@ -834,44 +759,24 @@ class HomelabAgent:
         return []
 
     def _save_history(self) -> None:
-        serialized = []
-        for msg in self._history:
-            content = msg["content"]
-            if isinstance(content, list):
-                serialized.append({
-                    "role": msg["role"],
-                    "content": [
-                        b.model_dump() if hasattr(b, "model_dump") else b
-                        for b in content
-                    ],
-                })
-            else:
-                serialized.append(msg)
+        serialized = [self._backend.serialize_message(msg) for msg in self._history]
         self._history_path.write_text(json.dumps(serialized, indent=2))
 
     def _trim_history(self) -> None:
-        """Keep at most MAX_HISTORY_TURNS turn-pairs, never splitting a tool_use/tool_result pair."""
+        """Keep at most MAX_HISTORY_TURNS turn-pairs, never leaving orphaned tool messages."""
         max_entries = MAX_HISTORY_TURNS * 2
         if len(self._history) > max_entries:
             self._history = self._history[-max_entries:]
 
-        # Walk forward until the first message is not a tool_result user message.
-        # Slicing by count can leave an orphaned tool_result whose tool_use was trimmed away,
-        # which the API rejects with a 400.
         while self._history:
             first = self._history[0]
-            content = first.get("content", [])
-            if (
-                first.get("role") == "user"
-                and isinstance(content, list)
-                and any(
-                    isinstance(b, dict) and b.get("type") == "tool_result"
-                    for b in content
-                )
-            ):
-                self._history = self._history[1:]
-            else:
-                break
+            if self._backend.is_orphaned_tool_result(first):
+                self._history.pop(0)
+                continue
+            if self._backend.has_incomplete_tool_calls(first, self._history[1:]):
+                self._history.pop(0)
+                continue
+            break
 
     # ------------------------------------------------------------------
     # Approval listener lifecycle
@@ -899,6 +804,25 @@ class HomelabAgent:
         self._pending.cancel_all("emergency stop")
         if self._active_task is not None:
             self._active_task.cancel()
+
+    def switch_backend(self, entry: "ModelEntry") -> None:
+        """Switch to a different LLM backend. Clears history (formats differ between providers)."""
+        new_config = LlmConfig(
+            provider=entry.provider,
+            model=entry.name,
+            base_url=entry.base_url,
+            api_key=entry.api_key,
+            input_cost_per_mtok=entry.input_cost_per_mtok,
+            output_cost_per_mtok=entry.output_cost_per_mtok,
+            available_models=self._config.llm.available_models,
+        )
+        self._backend = create_backend(new_config)
+        self._model = entry.name
+        self._input_cost_per_mtok = entry.input_cost_per_mtok
+        self._output_cost_per_mtok = entry.output_cost_per_mtok
+        self._history = []
+        if self._history_path.exists():
+            self._history_path.unlink()
 
     async def aclose(self) -> None:
         await self._slack.aclose()

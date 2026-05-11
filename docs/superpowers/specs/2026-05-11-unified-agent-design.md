@@ -135,7 +135,7 @@ for iteration in range(MAX_ITERATIONS):
 
 `_trim_history` uses `self._backend.is_orphaned_tool_result(msg)` and `self._backend.has_incomplete_tool_calls(msg, following)`.
 
-New method `switch_backend(entry: ModelEntry) -> None` — reinitialises `self._backend`, updates `self._model` and cost-per-token fields. Called by `controller.py` after `model use`.
+New method `switch_backend(entry: ModelEntry) -> None` — reinitialises `self._backend`, updates `self._model` and cost-per-token fields, **clears `self._history` and deletes `agent_history.json`** (history format differs between providers). Called by `controller.py` after `model use`.
 
 ### Config schema changes (`agent/agent/config_schema.py`)
 
@@ -286,13 +286,23 @@ hints_dir: "./hints"   # optional; defaults to ./hints relative to working direc
 ```yaml
 pattern: "VolumeDriver.Mount: PathIsDevice failed"
 hint: |
-  Likely cause: stale Linstor volume mount preventing service restart. Recovery procedure:
-  1. Scale the service to 0 replicas: docker service scale <service_name>=0
-  2. SSH to the node listed in the error output
-  3. Run lsblk and identify the mountpoint containing the service's volume name
-     (look for a drbd* device mounted under the Docker plugins path)
-  4. Unmount it: umount <full_mountpoint_path>
-  5. Scale the service back up: docker service scale <service_name>=1
+  Likely cause: stale Linstor volume mount preventing service restart.
+
+  The full error looks like:
+    failed to populate volume: error while mounting volume
+    '/var/lib/docker/plugins/<hash>/rootfs':
+    VolumeDriver.Mount: PathIsDevice failed for path "": stat : no such file or directory
+
+  Recovery procedure:
+  1. Identify which node the service is pinned to or last ran on (check docker service ps <service_name>)
+  2. Scale the service to 0: docker service scale <service_name>=0
+  3. SSH to the affected node
+  4. Run lsblk and find the mountpoint for the stale volume — look for a drbd* device
+     mounted under /var/lib/docker/plugins/<hash>/propagated-mount/<volume_name>
+     Example output:
+       drbd1000  147:1000  0  50G  0 disk /var/lib/docker/plugins/<hash>/propagated-mount/postgres_postgres_data
+  5. Unmount it: umount /var/lib/docker/plugins/<hash>/propagated-mount/<volume_name>
+  6. Scale the service back up: docker service scale <service_name>=1
 ```
 
 ---
@@ -319,4 +329,4 @@ hint: |
 - Supporting providers other than Anthropic and Ollama
 - Hot-reloading hint files without restart
 - Per-hint enable/disable flags
-- History format migration (existing `agent_history.json` files may need manual deletion if switching providers)
+- History format migration (handled automatically — history is cleared on backend switch)

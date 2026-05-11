@@ -58,7 +58,8 @@
       "Bash(find /home/chris -path */site-packages/ansible/errors*)",
       "Bash(find /usr -path */site-packages/ansible/errors*)",
       "Bash(.venv/bin/pytest test_resolve_deps.py -v)",
-      "Bash(source .venv/bin/activate)"
+      "Bash(source .venv/bin/activate)",
+      "Bash(git *)"
     ],
     "deny": [],
     "ask": []

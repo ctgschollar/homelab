@@ -13,16 +13,23 @@ from pydantic.fields import FieldInfo
 TierValue = Literal[1, 2, 3, "agent"]
 
 
-class AnthropicConfig(BaseModel):
-    api_key: Optional[str] = Field(default=None)
-    model: str
-    input_cost_per_mtok: float
-    output_cost_per_mtok: float
+class ModelEntry(BaseModel):
+    name: str
+    provider: Literal["anthropic", "ollama"]
+    base_url: str = ""
+    api_key: str = ""
+    input_cost_per_mtok: float = 0.0
+    output_cost_per_mtok: float = 0.0
 
 
 class LlmConfig(BaseModel):
-    base_url: str
-    available_models: list[str] = []
+    provider: Literal["anthropic", "ollama"]
+    model: str
+    base_url: str = ""
+    api_key: str = ""
+    input_cost_per_mtok: float = 0.0
+    output_cost_per_mtok: float = 0.0
+    available_models: list[ModelEntry] = []
 
 
 class SlackConfig(BaseModel):
@@ -123,7 +130,6 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
         with open(self._path) as f:
             data = yaml.safe_load(f) or {}
         _env_map = {
-            ("anthropic", "api_key"): "ANTHROPIC_API_KEY",
             ("slack", "bot_token"): "SLACK_BOT_TOKEN",
             ("slack", "signing_secret"): "SLACK_SIGNING_SECRET",
             ("ansible", "git_token"): "AGENT_GITHUB_TOKEN",
@@ -133,14 +139,18 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
             val = os.environ.get(env_var)
             if val is not None:
                 data.setdefault(section, {})[field] = val
+        # ANTHROPIC_API_KEY takes precedence over AGENT_LLM_API_KEY
+        llm_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AGENT_LLM_API_KEY")
+        if llm_key:
+            data.setdefault("llm", {})["api_key"] = llm_key
         return data
 
 
 class AgentConfig(BaseSettings):
     model_config = SettingsConfigDict(populate_by_name=True)
 
-    anthropic: AnthropicConfig
-    llm: Optional[LlmConfig] = None
+    llm: LlmConfig
+    hints_dir: str = "./hints"
     slack: SlackConfig
     docker: DockerConfig
     swarm: SwarmConfig

@@ -326,7 +326,26 @@ async def test_model_add(tmp_path) -> None:
     controller, agent, slack = make_controller(tmp_path=tmp_path)
     result = await controller.handle_command("model add llama3.1:8b")
     assert "llama3.1:8b" in result
-    assert any(m.name == "llama3.1:8b" for m in controller._config.llm.available_models)
+    entry = next(m for m in controller._config.llm.available_models if m.name == "llama3.1:8b")
+    assert entry.provider == "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_model_add_with_ollama_provider(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model add llama3.1:8b ollama")
+    assert "llama3.1:8b" in result
+    assert "ollama" in result
+    entry = next(m for m in controller._config.llm.available_models if m.name == "llama3.1:8b")
+    assert entry.provider == "ollama"
+
+
+@pytest.mark.asyncio
+async def test_model_add_invalid_provider(tmp_path) -> None:
+    controller, agent, slack = make_controller(tmp_path=tmp_path)
+    result = await controller.handle_command("model add llama3.1:8b openai")
+    assert "Unknown provider" in result
+    assert not any(m.name == "llama3.1:8b" for m in controller._config.llm.available_models)
 
 
 @pytest.mark.asyncio

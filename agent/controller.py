@@ -274,15 +274,20 @@ class AgentController:
             agent.switch_backend(entry)  # type: ignore[attr-defined]
         return f"✅ Switched to `{name}` ({entry.provider})"
 
-    async def _cmd_model_add(self, name: str) -> str:
+    async def _cmd_model_add(self, arg: str) -> str:
+        parts = arg.split(None, 1)
+        name = parts[0] if parts else ""
+        provider = parts[1].strip() if len(parts) > 1 else "anthropic"
         if not name:
-            return "Usage: `model add <name>`"
+            return "Usage: `model add <name> [provider]`"
+        if provider not in ("anthropic", "ollama"):
+            return f"Unknown provider `{provider}`. Use `anthropic` or `ollama`."
         if any(m.name == name for m in self._config.llm.available_models):
             return f"✅ `{name}` already in available models."
         from agent.config_schema import ModelEntry
-        self._config.llm.available_models.append(ModelEntry(name=name, provider="anthropic"))
+        self._config.llm.available_models.append(ModelEntry(name=name, provider=provider))
         self._persist_available_models(self._config.llm.available_models)
-        return f"✅ Added `{name}` (anthropic) to available models."
+        return f"✅ Added `{name}` ({provider}) to available models."
 
     async def _cmd_model_remove(self, name: str) -> str:
         if not name:
@@ -308,7 +313,7 @@ class AgentController:
             "• `model` — show active model\n"
             "• `model list` — show all available models\n"
             "• `model use <name>` — switch active model\n"
-            "• `model add <name>` — add model to available list\n"
+            "• `model add <name> [provider]` — add model (provider: anthropic or ollama, default anthropic)\n"
             "• `model remove <name>` — remove model from available list\n"
             "\nAnything else is sent to the agent as a question."
         )

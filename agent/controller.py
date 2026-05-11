@@ -15,7 +15,7 @@ from rich.console import Console
 from agent_base import AgentBase
 
 if TYPE_CHECKING:
-    from agent.agent.config_schema import AgentConfig
+    from agent.agent.config_schema import AgentConfig, ModelEntry
     from agent.agent.rag import IncidentRAG
     from agent.agent.slack import SlackClient
 
@@ -231,7 +231,7 @@ class AgentController:
         arg = parts[2] if len(parts) > 2 else ""
 
         if not sub:
-            return f"Current model: `{self._config.anthropic.model}`"
+            return f"Current model: `{self._config.llm.model}` ({self._config.llm.provider})"
         if sub == "list":
             return self._cmd_model_list()
         if sub == "use":
@@ -246,46 +246,53 @@ class AgentController:
         )
 
     def _cmd_model_list(self) -> str:
-        if not self._config.llm or not self._config.llm.available_models:
+        available = self._config.llm.available_models
+        if not available:
             return "No models configured. Use `model add <name>` to add one."
-        current = self._config.anthropic.model
+        current = self._config.llm.model
         lines = ["*Available models:*"]
-        for m in self._config.llm.available_models:
-            marker = " ← active" if m == current else ""
-            lines.append(f"• `{m}`{marker}")
+        for m in available:
+            marker = " ← active" if m.name == current else ""
+            lines.append(f"• `{m.name}` ({m.provider}){marker}")
         return "\n".join(lines)
 
     async def _cmd_model_use(self, name: str) -> str:
         if not name:
             return "Usage: `model use <name>`"
-        available = self._config.llm.available_models if self._config.llm else []
-        if name not in available:
+        entry = next((m for m in self._config.llm.available_models if m.name == name), None)
+        if entry is None:
             return f"`{name}` is not in available models. Use `model add {name}` first."
-        self._config.anthropic.model = name
-        self._persist_active_model(name)
+        self._config.llm.model = entry.name
+        self._config.llm.provider = entry.provider
+        self._config.llm.base_url = entry.base_url
+        self._config.llm.api_key = entry.api_key
+        self._config.llm.input_cost_per_mtok = entry.input_cost_per_mtok
+        self._config.llm.output_cost_per_mtok = entry.output_cost_per_mtok
+        self._persist_active_model(entry)
         agent = self.agents.get("default")
-        if agent is not None:
-            agent._model = name  # type: ignore[attr-defined]
-        return f"✅ Switched to `{name}`"
+        if agent is not None and hasattr(agent, "switch_backend"):
+            agent.switch_backend(entry)  # type: ignore[attr-defined]
+        return f"✅ Switched to `{name}` ({entry.provider})"
 
     async def _cmd_model_add(self, name: str) -> str:
         if not name:
             return "Usage: `model add <name>`"
-        if self._config.llm is None:
-            return "No `llm` section in config. Add it manually first."
-        if name not in self._config.llm.available_models:
-            self._config.llm.available_models.append(name)
-            self._persist_available_models(self._config.llm.available_models)
-        return f"✅ Added `{name}` to available models."
+        if any(m.name == name for m in self._config.llm.available_models):
+            return f"✅ `{name}` already in available models."
+        from agent.agent.config_schema import ModelEntry
+        self._config.llm.available_models.append(ModelEntry(name=name, provider="anthropic"))
+        self._persist_available_models(self._config.llm.available_models)
+        return f"✅ Added `{name}` (anthropic) to available models."
 
     async def _cmd_model_remove(self, name: str) -> str:
         if not name:
             return "Usage: `model remove <name>`"
-        if self._config.llm is None or name not in self._config.llm.available_models:
+        entry = next((m for m in self._config.llm.available_models if m.name == name), None)
+        if entry is None:
             return f"`{name}` is not in available models."
-        if name == self._config.anthropic.model:
+        if name == self._config.llm.model:
             return f"Cannot remove `{name}` — it is the active model. Switch first with `model use <other>`."
-        self._config.llm.available_models.remove(name)
+        self._config.llm.available_models.remove(entry)
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Removed `{name}` from available models."
 
@@ -306,21 +313,28 @@ class AgentController:
             "\nAnything else is sent to the agent as a question."
         )
 
-    def _persist_active_model(self, model: str) -> None:
+    def _persist_active_model(self, entry: "ModelEntry") -> None:
         try:
             with open(self._config_path) as f:
                 data = yaml.safe_load(f) or {}
-            data.setdefault("anthropic", {})["model"] = model
+            data.setdefault("llm", {}).update({
+                "model": entry.name,
+                "provider": entry.provider,
+                "base_url": entry.base_url,
+                "api_key": entry.api_key,
+                "input_cost_per_mtok": entry.input_cost_per_mtok,
+                "output_cost_per_mtok": entry.output_cost_per_mtok,
+            })
             with open(self._config_path, "w") as f:
                 yaml.dump(data, f, sort_keys=False, default_flow_style=False)
         except Exception as exc:
             console.print(f"[yellow]Warning: could not persist active model to config: {exc}[/yellow]")
 
-    def _persist_available_models(self, models: list[str]) -> None:
+    def _persist_available_models(self, models: list["ModelEntry"]) -> None:
         try:
             with open(self._config_path) as f:
                 data = yaml.safe_load(f) or {}
-            data.setdefault("llm", {})["available_models"] = models
+            data.setdefault("llm", {})["available_models"] = [m.model_dump() for m in models]
             with open(self._config_path, "w") as f:
                 yaml.dump(data, f, sort_keys=False, default_flow_style=False)
         except Exception as exc:

@@ -55,7 +55,7 @@ All tool implementations live here as `_tool_<name>` async methods. `TOOL_DEFINI
 Polls Docker Swarm every `monitor.poll_interval` seconds. Emits `services_down` (batched) and `service_recovered` events into the shared `asyncio.Queue`. First detection only — won't re-fire until the service recovers and degrades again.
 
 **`agent/rag.py` — `IncidentRAG`**
-Incident memory backed by PostgreSQL + pgvector. Uses `sentence-transformers` (`all-MiniLM-L6-v2`, 384-dim) for embeddings. Only active when `AGENT_POSTGRES_DSN` is set. Schema is bootstrapped at startup via `init_schema()`.
+Incident memory backed by PostgreSQL + pgvector. Uses Ollama (`nomic-embed-text`, 768-dim) for embeddings — configured via `rag.embed_url` and `rag.embed_model` in `config.yaml`. Only active when `AGENT_POSTGRES_DSN` is set. Schema is bootstrapped at startup via `init_schema()`.
 
 **`agent/prompts.py`**
 Builds the system prompt from three sections: infrastructure topology (`INFRA_CONTEXT`), tier rules (`TIER_RULES`), and behaviour rules (`BEHAVIOUR_RULES`). The system prompt is static across all turns and cached.

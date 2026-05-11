@@ -95,6 +95,8 @@ class SafetyConfig(BaseModel):
 class RagConfig(BaseModel):
     dsn: Optional[str] = Field(default=None)
     database: str = "homelab_agent"
+    embed_url: str = "http://localhost:11434"
+    embed_model: str = "nomic-embed-text"
     log_rag_debug: bool = False
 
 

@@ -122,6 +122,8 @@ safety:
 # -----------------------------------------------------------------------
 rag:
   database: homelab_agent
+  embed_url: "http://192.168.88.144:11434"
+  embed_model: nomic-embed-text
   log_rag_debug: false
   # dsn: set via AGENT_POSTGRES_DSN environment variable
   # format: postgresql://postgres:<password>@pg.schollar.dev:5432/postgres

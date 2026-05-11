@@ -2,15 +2,10 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+import ollama
 import psycopg
-
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:  # pragma: no cover
-    SentenceTransformer = None  # type: ignore[assignment,misc]
 
 if TYPE_CHECKING:
     from agent.config_schema import RagConfig
@@ -26,7 +21,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     inciting_incident TEXT NOT NULL,
     resolution        TEXT NOT NULL,
     tools_used        TEXT[] NOT NULL DEFAULT '{}',
-    embedding         vector(384) NOT NULL,
+    embedding         vector(768) NOT NULL,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -64,7 +59,6 @@ _COUNT_SQL = "SELECT COUNT(*) FROM incidents;"
 class IncidentRAG:
     def __init__(self, config: "RagConfig") -> None:
         self._config = config
-        self._model: object | None = None
 
     # ------------------------------------------------------------------
     # Schema bootstrap
@@ -99,16 +93,14 @@ class IncidentRAG:
     # Embedding
     # ------------------------------------------------------------------
 
-    def _embed(self, text: str) -> list[float]:
-        """Return a 384-float embedding. Loads model lazily on first call."""
-        if self._model is None:
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
-
+    async def _embed(self, text: str) -> list[float]:
+        """Return a 768-float embedding via Ollama."""
         if self._config.log_rag_debug:
             print(f"[RAG] embed input: {text[:200]!r}")
 
-        vec = self._model.encode(text)  # type: ignore[union-attr]
-        result = [float(v) for v in vec]
+        client = ollama.AsyncClient(host=self._config.embed_url)
+        response = await client.embed(model=self._config.embed_model, input=text)
+        result = response.embeddings[0]
 
         if self._config.log_rag_debug:
             print(f"[RAG] embedding: dim={len(result)}, first5={result[:5]}")
@@ -133,7 +125,7 @@ class IncidentRAG:
             print(f"[RAG] store_incident id={incident['id']} title={incident['title']!r}")
             print(f"[RAG] embed_text: {embed_text[:200]!r}")
 
-        embedding = self._embed(embed_text)
+        embedding = await self._embed(embed_text)
         target_dsn = re.sub(r"/[^/]*$", f"/{self._config.database}", self._config.dsn or "")
 
         async with await psycopg.AsyncConnection.connect(target_dsn) as conn:
@@ -162,7 +154,7 @@ class IncidentRAG:
         if self._config.log_rag_debug:
             print(f"[RAG] search_incidents query={query!r} top_k={top_k}")
 
-        embedding = self._embed(query)
+        embedding = await self._embed(query)
         target_dsn = re.sub(r"/[^/]*$", f"/{self._config.database}", self._config.dsn or "")
 
         async with await psycopg.AsyncConnection.connect(target_dsn) as conn:

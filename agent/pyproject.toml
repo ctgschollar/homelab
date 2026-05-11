@@ -9,6 +9,7 @@ description = "Autonomous sysadmin agent for Docker Swarm homelab"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.40.0",
+    "ollama>=0.3.0",
     "docker>=7.0.0",
     "fastapi",
     "uvicorn[standard]",

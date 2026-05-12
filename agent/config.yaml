@@ -7,6 +7,7 @@ llm:
   input_cost_per_mtok: 0.0
   output_cost_per_mtok: 0.0
   num_ctx: 32768
+  think: false
   available_models:
     - name: claude-sonnet-4-5
       provider: anthropic
@@ -18,6 +19,7 @@ llm:
       input_cost_per_mtok: 0.0
       output_cost_per_mtok: 0.0
       num_ctx: 32768
+      think: false
     - name: gemma4
       provider: ollama
       base_url: "http://192.168.88.144:11434"

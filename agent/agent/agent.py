@@ -897,6 +897,7 @@ class HomelabAgent:
             input_cost_per_mtok=entry.input_cost_per_mtok,
             output_cost_per_mtok=entry.output_cost_per_mtok,
             num_ctx=entry.num_ctx,
+            think=entry.think,
             available_models=self._config.llm.available_models,
         )
         self._backend = create_backend(new_config)

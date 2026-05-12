@@ -21,6 +21,7 @@ class ModelEntry(BaseModel):
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
     num_ctx: int = 16384
+    think: bool | None = None
 
 
 class LlmConfig(BaseModel):
@@ -31,6 +32,7 @@ class LlmConfig(BaseModel):
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
     num_ctx: int = 16384
+    think: bool | None = None
     available_models: list[ModelEntry] = []
 
 

@@ -179,6 +179,7 @@ class OllamaBackend(LLMBackend):
         self._client = ollama.AsyncClient(host=config.base_url or "http://localhost:11434")
         self._model = config.model
         self._num_ctx = config.num_ctx
+        self._think = config.think
 
     @staticmethod
     def _to_ollama_tool(tool: dict) -> dict:
@@ -208,12 +209,13 @@ class OllamaBackend(LLMBackend):
                 kwargs: dict = {
                     "model": self._model,
                     "messages": messages,
-                    "think": False,
                     "stream": False,
                     "options": {"num_ctx": self._num_ctx},
                 }
                 if ollama_tools:
                     kwargs["tools"] = ollama_tools
+                    if self._think is not None:
+                        kwargs["think"] = self._think
                 response = await self._client.chat(**kwargs)
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)",

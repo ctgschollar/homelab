@@ -205,14 +205,16 @@ class OllamaBackend(LLMBackend):
         delay = 5
         for attempt in range(5):
             try:
-                response = await self._client.chat(
-                    model=self._model,
-                    messages=messages,
-                    tools=ollama_tools,
-                    think=False,
-                    stream=False,
-                    options={"num_ctx": self._num_ctx},
-                )
+                kwargs: dict = {
+                    "model": self._model,
+                    "messages": messages,
+                    "think": False,
+                    "stream": False,
+                    "options": {"num_ctx": self._num_ctx},
+                }
+                if ollama_tools:
+                    kwargs["tools"] = ollama_tools
+                response = await self._client.chat(**kwargs)
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)",
                     response.done_reason,

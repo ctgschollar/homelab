@@ -492,6 +492,10 @@ class HomelabAgent:
             self._trim_history()
 
             if response.input_tokens >= self._summarize_threshold:
+                logger.debug(
+                    "auto-summarize triggered: input_tokens=%d threshold=%d",
+                    response.input_tokens, self._summarize_threshold,
+                )
                 await self._summarize_history()
 
             if response.text:
@@ -817,6 +821,7 @@ class HomelabAgent:
             self._history_path.unlink()
 
     async def get_summary(self) -> str:
+        logger.debug("get_summary: history has %d messages", len(self._history))
         if not self._history:
             return ""
         return await self._call_summary(self._history)
@@ -860,6 +865,7 @@ class HomelabAgent:
         return result
 
     async def _call_summary(self, messages: list[dict]) -> str:
+        logger.debug("_call_summary: input %d messages", len(messages))
         summary_system = (
             "Summarize this infrastructure troubleshooting conversation in 150 words or fewer. "
             "Cover: what alert or question triggered the investigation, key findings "
@@ -868,9 +874,12 @@ class HomelabAgent:
             "Be terse — this summary replaces the conversation in context, so facts matter more than prose."
         )
         flat = self._flatten_for_summary(messages)
+        logger.debug("_call_summary: flattened to %d messages", len(flat))
         if not flat:
+            logger.debug("_call_summary: nothing to summarize after flattening")
             return ""
         response = await self._backend.chat(summary_system, flat, [])
+        logger.debug("_call_summary: response text length=%d", len(response.text))
         return response.text.strip()
 
     def switch_backend(self, entry: "ModelEntry") -> None:

@@ -247,18 +247,17 @@ async def test_get_summary_empty_history():
 
 @pytest.mark.asyncio
 async def test_run_loop_triggers_summarize_when_over_threshold():
-    """When input_tokens >= num_ctx // 2 and cooldown elapsed, _summarize_history is called."""
+    """When input_tokens >= num_ctx * 3 // 4, _summarize_history is called."""
     agent = _make_agent(num_ctx=1000)
     agent._history = []
-    agent._messages_since_summary = 10  # bypass cooldown
 
     from agent.llm import LLMResponse
-    # First response: over threshold (600 > 500), with stop=True
+    # First response: over threshold (800 > 750), with stop=True
     response = LLMResponse(
         text="done",
         tool_calls=[],
         stop=True,
-        input_tokens=600,
+        input_tokens=800,
         output_tokens=10,
         assistant_history_entry={"role": "assistant", "content": "done"},
     )
@@ -270,31 +269,6 @@ async def test_run_loop_triggers_summarize_when_over_threshold():
     await agent._run_loop("cli:test")
 
     agent._summarize_history.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_run_loop_does_not_summarize_within_cooldown():
-    """Even if over threshold, _summarize_history is NOT called within the 10-message cooldown."""
-    agent = _make_agent(num_ctx=1000)
-    agent._messages_since_summary = 5  # under cooldown
-
-    from agent.llm import LLMResponse
-    response = LLMResponse(
-        text="done",
-        tool_calls=[],
-        stop=True,
-        input_tokens=600,  # over threshold
-        output_tokens=10,
-        assistant_history_entry={"role": "assistant", "content": "done"},
-    )
-    agent._backend = AsyncMock()
-    agent._backend.chat = AsyncMock(return_value=response)
-    agent._summarize_history = AsyncMock(return_value="")
-
-    agent._history.append({"role": "user", "content": "test"})
-    await agent._run_loop("cli:test")
-
-    agent._summarize_history.assert_not_called()
 
 
 @pytest.mark.asyncio

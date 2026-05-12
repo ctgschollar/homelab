@@ -39,7 +39,11 @@ class LLMBackend(ABC):
         system: str,
         history: list[dict],
         tool_defs: list[dict],
+        think_override: bool | None = None,
     ) -> LLMResponse: ...
+
+    @abstractmethod
+    def set_think(self, value: bool | None) -> None: ...
 
     @abstractmethod
     def format_tool_results(self, results: list[tuple[str, str]]) -> list[dict]: ...
@@ -62,11 +66,15 @@ class AnthropicBackend(LLMBackend):
         self._client = anthropic.AsyncAnthropic(**client_kwargs)
         self._model = config.model
 
+    def set_think(self, value: bool | None) -> None:
+        pass
+
     async def chat(
         self,
         system: str,
         history: list[dict],
         tool_defs: list[dict],
+        think_override: bool | None = None,
     ) -> LLMResponse:
         system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
         tools = list(tool_defs)
@@ -192,11 +200,15 @@ class OllamaBackend(LLMBackend):
             },
         }
 
+    def set_think(self, value: bool | None) -> None:
+        self._think = value
+
     async def chat(
         self,
         system: str,
         history: list[dict],
         tool_defs: list[dict],
+        think_override: bool | None = None,
     ) -> LLMResponse:
         messages = [{"role": "system", "content": system}] + history
         ollama_tools = [self._to_ollama_tool(t) for t in tool_defs]
@@ -214,8 +226,11 @@ class OllamaBackend(LLMBackend):
                 }
                 if ollama_tools:
                     kwargs["tools"] = ollama_tools
-                    if self._think is not None:
-                        kwargs["think"] = self._think
+                    effective_think = think_override if think_override is not None else self._think
+                    if effective_think is not None:
+                        kwargs["think"] = effective_think
+                elif think_override is not None:
+                    kwargs["think"] = think_override
                 response = await self._client.chat(**kwargs)
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)",

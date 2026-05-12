@@ -351,7 +351,7 @@ class SlackClient:
             }
         ], text=f"Service recovered: {service}")
 
-    async def notify(self, text: str) -> dict:
+    async def notify(self, text: str, retry_prompt: str | None = None) -> dict:
         _BLOCK_LIMIT = 2900
         if len(text) <= _BLOCK_LIMIT:
             blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
@@ -359,6 +359,16 @@ class SlackClient:
             blocks = []
             for i in range(0, len(text), _BLOCK_LIMIT):
                 blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[i:i + _BLOCK_LIMIT]}})
+        if retry_prompt:
+            blocks.append({
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Retry with Think"},
+                    "action_id": "retry_with_think",
+                    "value": json.dumps({"prompt": retry_prompt[:1900]}),
+                }],
+            })
         return await self._post_message(blocks, text=text[:3000])
 
     async def aclose(self) -> None:

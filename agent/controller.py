@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context", "history", "command"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context", "history", "command", "think"])
 
 
 @dataclass
@@ -93,7 +93,7 @@ class AgentController:
 
     def is_command(self, text: str) -> bool:
         lower = text.lower().strip()
-        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ") or lower.startswith("history ") or lower.startswith("command ")
+        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ") or lower.startswith("history ") or lower.startswith("command ") or lower.startswith("think ")
 
     # ------------------------------------------------------------------
     # Event routing
@@ -169,7 +169,7 @@ class AgentController:
         try:
             response, _ = await task
             if source != "cli" and response:
-                await self._slack.notify(response)
+                await self._slack.notify(response, retry_prompt=message)
         except asyncio.CancelledError:
             pass
         finally:
@@ -205,6 +205,8 @@ class AgentController:
                 return await self._cmd_history(text.strip())
             if lower == "command" or lower.startswith("command "):
                 return await self._cmd_command(text.strip())
+            if lower == "think" or lower.startswith("think "):
+                return self._cmd_think(text.strip())
         finally:
             self._active_task_description = None
         return f"Unknown command: {text!r}"
@@ -414,6 +416,31 @@ class AgentController:
 
         return "Usage: `command list` | `command run <tool_name> [json_args]`"
 
+    def _cmd_think(self, text: str) -> str:
+        parts = text.split(maxsplit=1)
+        sub = parts[1].lower() if len(parts) > 1 else ""
+        if sub == "on":
+            self.set_think(True)
+            return "Think mode ON. Summaries always use think regardless of this setting."
+        elif sub == "off":
+            self.set_think(False)
+            return "Think mode OFF. (Summaries still always use think.)"
+        elif sub in ("status", ""):
+            state = self._config.llm.think
+            label = "on" if state is True else "off" if state is False else "unset (default off)"
+            return f"Think mode: {label}. Summaries always use think."
+        return "Usage: `think on | off | status`"
+
+    def set_think(self, value: bool | None) -> None:
+        self._config.llm.think = value
+        agent = self.agents.get("default")
+        if agent is not None:
+            agent.set_think(value)  # type: ignore[attr-defined]
+
+    async def handle_retry(self, prompt: str, channel: str) -> None:
+        event = {"type": "user_message", "source": "slack:retry", "data": {"message": prompt}}
+        await self._run_agent_chat(event)
+
     def _cmd_help(self) -> str:
         return (
             "*Homelab Agent — Slack commands:*\n"
@@ -434,6 +461,9 @@ class AgentController:
             "• `history summary` — summarize and post current history\n"
             "• `command list` — list all available tools\n"
             "• `command run <tool> [json]` — run a tool directly, e.g. `command run docker_service_list {}`\n"
+            "• `think on` — enable extended reasoning (slower, better for complex problems)\n"
+            "• `think off` — disable extended reasoning\n"
+            "• `think status` — show current think mode\n"
             "\nAnything else is sent to the agent as a question."
         )
 

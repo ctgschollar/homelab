@@ -286,6 +286,16 @@ def build_approval_app(
                         await controller.ignore_alert(value)
                     return Response(content="", status_code=200)
 
+                # --- Retry with Think button ---
+                if action_id == "retry_with_think":
+                    data = json.loads(value) if value else {}
+                    prompt = data.get("prompt", "")
+                    channel_id = payload.get("channel", {}).get("id", "")
+                    if prompt and controller is not None:
+                        await controller.set_think(True)
+                        asyncio.create_task(controller.handle_retry(prompt, channel_id))
+                    return Response(content="", status_code=200)
+
                 # --- Plan approval buttons ---
                 if action_id not in ("plan_approve", "plan_deny", "plan_approve_whitelist"):
                     continue
@@ -885,9 +895,12 @@ class HomelabAgent:
         if not flat:
             logger.debug("_call_summary: nothing to summarize after flattening")
             return ""
-        response = await self._backend.chat(summary_system, flat, [])
+        response = await self._backend.chat(summary_system, flat, [], think_override=True)
         logger.debug("_call_summary: response text length=%d", len(response.text))
         return response.text.strip()
+
+    def set_think(self, value: bool | None) -> None:
+        self._backend.set_think(value)
 
     def switch_backend(self, entry: "ModelEntry") -> None:
         """Switch to a different LLM backend, preserving text-only history.

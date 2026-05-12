@@ -526,7 +526,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.debug:
-        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+        logging.getLogger("homelab").setLevel(logging.DEBUG)
     else:
         logging.basicConfig(level=logging.WARNING)
 

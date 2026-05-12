@@ -289,7 +289,7 @@ class AgentController:
             return f"`{name}` is not in available models. Use `model add {name}` first."
         self._config.llm.model = entry.name
         self._config.llm.provider = entry.provider
-        self._config.llm.base_url = entry.base_url
+        self._config.llm.base_urls = entry.base_urls
         self._config.llm.api_key = entry.api_key
         self._config.llm.input_cost_per_mtok = entry.input_cost_per_mtok
         self._config.llm.output_cost_per_mtok = entry.output_cost_per_mtok
@@ -311,11 +311,11 @@ class AgentController:
         if any(m.name == name for m in self._config.llm.available_models):
             return f"✅ `{name}` already in available models."
         from agent.config_schema import ModelEntry
-        base_url = ""
+        base_urls: list[str] = []
         if provider == "ollama":
             existing = next((m for m in self._config.llm.available_models if m.provider == "ollama"), None)
-            base_url = existing.base_url if existing else self._config.llm.base_url
-        self._config.llm.available_models.append(ModelEntry(name=name, provider=provider, base_url=base_url))
+            base_urls = existing.base_urls if existing else self._config.llm.base_urls
+        self._config.llm.available_models.append(ModelEntry(name=name, provider=provider, base_urls=base_urls))
         self._persist_available_models(self._config.llm.available_models)
         return f"✅ Added `{name}` ({provider}) to available models."
 
@@ -474,7 +474,7 @@ class AgentController:
             data.setdefault("llm", {}).update({
                 "model": entry.name,
                 "provider": entry.provider,
-                "base_url": entry.base_url,
+                "base_urls": entry.base_urls,
                 "api_key": entry.api_key,
                 "input_cost_per_mtok": entry.input_cost_per_mtok,
                 "output_cost_per_mtok": entry.output_cost_per_mtok,

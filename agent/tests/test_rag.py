@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,41 +28,48 @@ def _make_incident(inc_id: str = "INC-0001") -> dict:
     }
 
 
+def _mock_conn_ctx(mock_cursor: AsyncMock) -> AsyncMock:
+    """Return an AsyncMock that behaves as an async context manager for a psycopg connection."""
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    cursor_ctx = AsyncMock()
+    cursor_ctx.__aenter__ = AsyncMock(return_value=mock_cursor)
+    cursor_ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.cursor = MagicMock(return_value=cursor_ctx)
+    return mock_conn
+
+
+def _mock_ollama_embed(embedding: list[float]) -> MagicMock:
+    """Return a mock ollama.AsyncClient whose embed() returns the given embedding."""
+    mock_client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.embeddings = [embedding]
+    mock_client.embed = AsyncMock(return_value=mock_response)
+    return mock_client
+
+
 # ---------------------------------------------------------------------------
 # _embed
 # ---------------------------------------------------------------------------
 
-def test_embed_returns_384_floats() -> None:
+@pytest.mark.asyncio
+async def test_embed_returns_768_floats() -> None:
     rag = _make_rag()
-    with patch("agent.rag.SentenceTransformer") as mock_st:
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.1] * 384
-        mock_st.return_value = mock_model
-        result = rag._embed("hello world")
-    assert len(result) == 384
+    embedding = [0.1] * 768
+    with patch("agent.rag.ollama.AsyncClient", return_value=_mock_ollama_embed(embedding)):
+        result = await rag._embed("hello world")
+    assert len(result) == 768
     assert all(isinstance(v, float) for v in result)
 
 
-def test_embed_caches_model() -> None:
+@pytest.mark.asyncio
+async def test_embed_uses_configured_model() -> None:
     rag = _make_rag()
-    with patch("agent.rag.SentenceTransformer") as mock_st:
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.0] * 384
-        mock_st.return_value = mock_model
-        rag._embed("first call")
-        rag._embed("second call")
-    # SentenceTransformer constructor called exactly once (lazy, cached)
-    assert mock_st.call_count == 1
-
-
-def test_embed_uses_correct_model_name() -> None:
-    rag = _make_rag()
-    with patch("agent.rag.SentenceTransformer") as mock_st:
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.0] * 384
-        mock_st.return_value = mock_model
-        rag._embed("test")
-    mock_st.assert_called_once_with("all-MiniLM-L6-v2")
+    mock_client = _mock_ollama_embed([0.0] * 768)
+    with patch("agent.rag.ollama.AsyncClient", return_value=mock_client):
+        await rag._embed("test")
+    mock_client.embed.assert_called_once_with(model="nomic-embed-text", input="test")
 
 
 # ---------------------------------------------------------------------------
@@ -75,21 +81,14 @@ async def test_store_incident_upserts_row() -> None:
     rag = _make_rag()
     incident = _make_incident()
 
-    mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
-    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_conn.__aexit__ = AsyncMock(return_value=False)
-    mock_conn.cursor.return_value.__aenter__ = AsyncMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__aexit__ = AsyncMock(return_value=False)
+    mock_conn = _mock_conn_ctx(mock_cursor)
+    mock_ollama = _mock_ollama_embed([0.5] * 768)
 
-    with patch("agent.rag.SentenceTransformer") as mock_st, \
+    with patch("agent.rag.ollama.AsyncClient", return_value=mock_ollama), \
          patch("agent.rag.psycopg.AsyncConnection.connect", return_value=mock_conn):
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.5] * 384
-        mock_st.return_value = mock_model
         await rag.store_incident(incident)
 
-    # cursor.execute should have been called with an INSERT ... ON CONFLICT statement
     assert mock_cursor.execute.called
     sql_arg = mock_cursor.execute.call_args[0][0]
     assert "ON CONFLICT" in sql_arg
@@ -106,21 +105,15 @@ async def test_store_incident_embeds_correct_text() -> None:
         "Reverted to previous image."
     )
 
-    mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
-    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_conn.__aexit__ = AsyncMock(return_value=False)
-    mock_conn.cursor.return_value.__aenter__ = AsyncMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__aexit__ = AsyncMock(return_value=False)
+    mock_conn = _mock_conn_ctx(mock_cursor)
+    mock_ollama = _mock_ollama_embed([0.0] * 768)
 
-    with patch("agent.rag.SentenceTransformer") as mock_st, \
+    with patch("agent.rag.ollama.AsyncClient", return_value=mock_ollama), \
          patch("agent.rag.psycopg.AsyncConnection.connect", return_value=mock_conn):
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.0] * 384
-        mock_st.return_value = mock_model
         await rag.store_incident(incident)
 
-    mock_model.encode.assert_called_once_with(expected_text)
+    mock_ollama.embed.assert_called_once_with(model="nomic-embed-text", input=expected_text)
 
 
 # ---------------------------------------------------------------------------
@@ -141,19 +134,13 @@ async def test_search_incidents_returns_results() -> None:
         0.92,
     )
 
-    mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
     mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
-    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_conn.__aexit__ = AsyncMock(return_value=False)
-    mock_conn.cursor.return_value.__aenter__ = AsyncMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__aexit__ = AsyncMock(return_value=False)
+    mock_conn = _mock_conn_ctx(mock_cursor)
+    mock_ollama = _mock_ollama_embed([0.1] * 768)
 
-    with patch("agent.rag.SentenceTransformer") as mock_st, \
+    with patch("agent.rag.ollama.AsyncClient", return_value=mock_ollama), \
          patch("agent.rag.psycopg.AsyncConnection.connect", return_value=mock_conn):
-        mock_model = MagicMock()
-        mock_model.encode.return_value = [0.1] * 384
-        mock_st.return_value = mock_model
         results = await rag.search_incidents("traefik crash", top_k=3)
 
     assert len(results) == 1
@@ -170,13 +157,9 @@ async def test_search_incidents_returns_results() -> None:
 async def test_count_incidents_returns_integer() -> None:
     rag = _make_rag()
 
-    mock_conn = AsyncMock()
     mock_cursor = AsyncMock()
     mock_cursor.fetchone = AsyncMock(return_value=(7,))
-    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_conn.__aexit__ = AsyncMock(return_value=False)
-    mock_conn.cursor.return_value.__aenter__ = AsyncMock(return_value=mock_cursor)
-    mock_conn.cursor.return_value.__aexit__ = AsyncMock(return_value=False)
+    mock_conn = _mock_conn_ctx(mock_cursor)
 
     with patch("agent.rag.psycopg.AsyncConnection.connect", return_value=mock_conn):
         count = await rag.count_incidents()

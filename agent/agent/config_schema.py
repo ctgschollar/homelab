@@ -16,24 +16,50 @@ TierValue = Literal[1, 2, 3, "agent"]
 class ModelEntry(BaseModel):
     name: str
     provider: Literal["anthropic", "ollama"]
-    base_url: str = ""
+    base_urls: list[str] = []
     api_key: str = ""
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
     num_ctx: int = 16384
     think: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_base_url(cls, data: object) -> object:
+        if isinstance(data, dict) and "base_url" in data and "base_urls" not in data:
+            url = data.pop("base_url")
+            data["base_urls"] = [url] if url else []
+        return data
+
+    @property
+    def base_url(self) -> str:
+        return self.base_urls[0] if self.base_urls else ""
 
 
 class LlmConfig(BaseModel):
     provider: Literal["anthropic", "ollama"]
     model: str
-    base_url: str = ""
+    base_urls: list[str] = []
     api_key: str = ""
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
     num_ctx: int = 16384
     think: bool | None = None
+    endpoint_probe_timeout: float = 1.0
+    endpoint_cache_ttl: int = 300
     available_models: list[ModelEntry] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_base_url(cls, data: object) -> object:
+        if isinstance(data, dict) and "base_url" in data and "base_urls" not in data:
+            url = data.pop("base_url")
+            data["base_urls"] = [url] if url else []
+        return data
+
+    @property
+    def base_url(self) -> str:
+        return self.base_urls[0] if self.base_urls else ""
 
 
 class SlackConfig(BaseModel):

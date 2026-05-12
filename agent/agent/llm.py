@@ -185,10 +185,36 @@ class AnthropicBackend(LLMBackend):
 
 class OllamaBackend(LLMBackend):
     def __init__(self, config: "LlmConfig") -> None:
-        self._client = ollama.AsyncClient(host=config.base_url or "http://localhost:11434")
+        self._base_urls: list[str] = config.base_urls or ["http://localhost:11434"]
+        self._probe_timeout = config.endpoint_probe_timeout
+        self._cache_ttl = config.endpoint_cache_ttl
+        self._active_url: str | None = None
+        self._url_cached_at: float = 0.0
+        self._client = ollama.AsyncClient(host=self._base_urls[0])
         self._model = config.model
         self._num_ctx = config.num_ctx
         self._think = config.think
+
+    async def _resolve_url(self) -> str:
+        import time
+        import httpx
+        now = time.monotonic()
+        if self._active_url and (now - self._url_cached_at) < self._cache_ttl:
+            return self._active_url
+        for url in self._base_urls:
+            try:
+                async with httpx.AsyncClient(timeout=self._probe_timeout) as http:
+                    resp = await http.get(f"{url}/api/tags")
+                if resp.status_code == 200:
+                    if url != self._active_url:
+                        logger.debug("ENDPOINT resolved %s", url)
+                    self._active_url = url
+                    self._url_cached_at = now
+                    return url
+            except Exception:
+                logger.debug("ENDPOINT probe failed for %s", url)
+        logger.warning("ENDPOINT all URLs unreachable, falling back to %s", self._base_urls[0])
+        return self._base_urls[0]
 
     @staticmethod
     def _to_ollama_tool(tool: dict) -> dict:
@@ -216,6 +242,9 @@ class OllamaBackend(LLMBackend):
 
         logger.debug("API REQUEST model=%s history_turns=%d", self._model, len(history))
 
+        url = await self._resolve_url()
+        client = ollama.AsyncClient(host=url)
+
         delay = 5
         for attempt in range(5):
             try:
@@ -232,7 +261,7 @@ class OllamaBackend(LLMBackend):
                         kwargs["think"] = effective_think
                 elif think_override is not None:
                     kwargs["think"] = think_override
-                response = await self._client.chat(**kwargs)
+                response = await client.chat(**kwargs)
                 logger.debug(
                     "API RESPONSE done_reason=%s tokens=(%d in, %d out)",
                     response.done_reason,
@@ -242,6 +271,7 @@ class OllamaBackend(LLMBackend):
                 break
             except ollama.ResponseError as exc:
                 logger.error("Ollama ResponseError: status=%s error=%r", exc.status_code, exc.error)
+                self._active_url = None  # clear cache so next attempt re-probes
                 if attempt < 4:
                     await asyncio.sleep(delay)
                     delay *= 2

@@ -1,13 +1,18 @@
 llm:
   provider: ollama
   model: qwen3.5:9b
-  base_url: "http://desktop.schollar.dev:11434"
+  base_urls:
+    - "http://desktop.schollar.dev:11434"
+    - "http://192.168.88.144:11434"
   api_key: ""                     # overridden by ANTHROPIC_API_KEY env var
   # Pricing per million tokens (USD) — update with: python config_cli.py pricing <input> <output>
   input_cost_per_mtok: 0.0
   output_cost_per_mtok: 0.0
   num_ctx: 32768
   think: false
+  # Endpoint probe settings
+  endpoint_probe_timeout: 1.0    # seconds to wait before declaring an endpoint unreachable
+  endpoint_cache_ttl: 300        # seconds to cache the last-good endpoint
   available_models:
     - name: claude-sonnet-4-5
       provider: anthropic
@@ -15,20 +20,25 @@ llm:
       output_cost_per_mtok: 15.0
     - name: qwen3.6:27b
       provider: ollama
-      base_url: "http://192.168.88.144:11434"
+      base_urls:
+        - "http://desktop.schollar.dev:11434"
+        - "http://192.168.88.144:11434"
       input_cost_per_mtok: 0.0
       output_cost_per_mtok: 0.0
       num_ctx: 32768
       think: false
     - name: gemma4
       provider: ollama
-      base_url: "http://192.168.88.144:11434"
+      base_urls:
+        - "http://192.168.88.144:11434"
       input_cost_per_mtok: 0.0
       output_cost_per_mtok: 0.0
       num_ctx: 32768
     - name: qwen3.5:9b
       provider: ollama
-      base_url: "http://desktop.schollar.dev:11434"
+      base_urls:
+        - "http://desktop.schollar.dev:11434"
+        - "http://192.168.88.144:11434"
       input_cost_per_mtok: 0.0
       output_cost_per_mtok: 0.0
       num_ctx: 32768

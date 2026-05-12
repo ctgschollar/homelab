@@ -914,7 +914,7 @@ class HomelabAgent:
         new_config = LlmConfig(
             provider=entry.provider,
             model=entry.name,
-            base_url=entry.base_url,
+            base_urls=entry.base_urls,
             api_key=entry.api_key,
             input_cost_per_mtok=entry.input_cost_per_mtok,
             output_cost_per_mtok=entry.output_cost_per_mtok,

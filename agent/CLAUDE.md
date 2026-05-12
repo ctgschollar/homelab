@@ -96,7 +96,7 @@ Tools have a hardcoded default in `safety.py:_DEFAULT_TIERS` and can be overridd
 
 ### Ollama / Qwen3 behaviour notes
 
-These were established via live integration tests (`tests/test_llm_live.py`):
+These were established via live integration tests against Qwen3 on Ollama:
 
 - **`think` parameter works** with both `think=True` and `think=False` for tool calls and plain responses — all combinations pass when the conversation history is valid.
 - **History must end with a user message.** Ollama's chat API is strictly turn-based: if the last message is from the assistant, the model produces empty output. This is not a `think`-related issue — it affects all calls regardless of think setting.

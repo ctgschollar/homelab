@@ -236,8 +236,10 @@ def build_approval_app(
                 text = event.get("text", "").strip()
                 if text and event_queue is not None:
                     if controller is not None and controller.is_command(text):
-                        response = await controller.handle_command(text)
-                        await slack.notify(response)
+                        async def _run_command(t: str = text) -> None:
+                            result = await controller.handle_command(t)
+                            await slack.notify(result)
+                        asyncio.create_task(_run_command())
                     else:
                         await event_queue.put({
                             "source": "slack",
@@ -840,6 +842,23 @@ class HomelabAgent:
             logger.warning("Failed to notify Slack of summary: %s", exc)
         return summary
 
+    @staticmethod
+    def _flatten_for_summary(messages: list[dict]) -> list[dict]:
+        """Convert tool call/result messages to plain text so the model summarizes instead of calling tools."""
+        result = []
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role == "tool":
+                result.append({"role": "user", "content": f"[Tool output]: {content}"})
+            elif role == "assistant" and m.get("tool_calls"):
+                names = [tc["function"]["name"] for tc in m.get("tool_calls", [])]
+                text = content or f"[Called: {', '.join(names)}]"
+                result.append({"role": "assistant", "content": text})
+            elif isinstance(content, str) and content.strip():
+                result.append({"role": role, "content": content})
+        return result
+
     async def _call_summary(self, messages: list[dict]) -> str:
         summary_system = (
             "Summarize this infrastructure troubleshooting conversation in 150 words or fewer. "
@@ -848,7 +867,10 @@ class HomelabAgent:
             "any unresolved issues. Include specific service names and error messages. "
             "Be terse — this summary replaces the conversation in context, so facts matter more than prose."
         )
-        response = await self._backend.chat(summary_system, messages, TOOL_DEFINITIONS)
+        flat = self._flatten_for_summary(messages)
+        if not flat:
+            return ""
+        response = await self._backend.chat(summary_system, flat, [])
         return response.text.strip()
 
     def switch_backend(self, entry: "ModelEntry") -> None:

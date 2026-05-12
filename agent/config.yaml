@@ -1,11 +1,12 @@
 llm:
-  provider: anthropic
-  model: claude-sonnet-4-5
-  base_url: ""
+  provider: ollama
+  model: qwen3.6:29b
+  base_url: "http://192.168.88.144:11434"
   api_key: ""                     # overridden by ANTHROPIC_API_KEY env var
   # Pricing per million tokens (USD) — update with: python config_cli.py pricing <input> <output>
-  input_cost_per_mtok: 3.0
-  output_cost_per_mtok: 15.0
+  input_cost_per_mtok: 0.0
+  output_cost_per_mtok: 0.0
+  num_ctx: 32768
   available_models:
     - name: claude-sonnet-4-5
       provider: anthropic
@@ -16,6 +17,18 @@ llm:
       base_url: "http://192.168.88.144:11434"
       input_cost_per_mtok: 0.0
       output_cost_per_mtok: 0.0
+    - name: qwen3.6:29b
+      provider: ollama
+      base_url: "http://192.168.88.144:11434"
+      input_cost_per_mtok: 0.0
+      output_cost_per_mtok: 0.0
+      num_ctx: 32768
+    - name: gemma4
+      provider: ollama
+      base_url: "http://192.168.88.144:11434"
+      input_cost_per_mtok: 0.0
+      output_cost_per_mtok: 0.0
+      num_ctx: 32768
 
 hints_dir: "./hints"
 

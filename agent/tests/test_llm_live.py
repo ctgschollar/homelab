@@ -34,6 +34,16 @@ _SUMMARY_HISTORY = [
 ]
 
 
+def test_ollama_reachable():
+    """Verify Ollama is reachable and the model is available."""
+    import ollama
+    client = ollama.Client(host=OLLAMA_URL)
+    models = client.list()
+    names = [m.model for m in models.models]
+    print(f"\nAvailable models: {names}")
+    assert any(MODEL in n for n in names), f"{MODEL!r} not found in {names}"
+
+
 def _backend(think: bool | None = None) -> OllamaBackend:
     cfg = LlmConfig(
         provider="ollama",

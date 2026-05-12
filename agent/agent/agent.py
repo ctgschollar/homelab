@@ -409,6 +409,7 @@ class HomelabAgent:
         self._history_path = Path(config.history.path)
         self._history: list[dict] = self._load_history()
         self._summarize_threshold: int = config.llm.num_ctx // 2
+        self._messages_since_summary: int = 0
         self._last_cost_breakdown: str = ""
         self._zar_rate: float | None = None
         self._zar_rate_fetched_at: datetime | None = None
@@ -488,9 +489,11 @@ class HomelabAgent:
             total_cache_read_tokens += response.cache_read_tokens
             self._history.append(response.assistant_history_entry)
             self._trim_history()
+            self._messages_since_summary += 1
 
-            if response.input_tokens >= self._summarize_threshold:
+            if self._messages_since_summary >= 10 and response.input_tokens >= self._summarize_threshold:
                 await self._summarize_history()
+                self._messages_since_summary = 0
 
             if response.text:
                 final_text = response.text
@@ -811,6 +814,7 @@ class HomelabAgent:
 
     def clear_history(self) -> None:
         self._history = []
+        self._messages_since_summary = 0
         if self._history_path.exists():
             self._history_path.unlink()
 

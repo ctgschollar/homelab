@@ -28,10 +28,22 @@ _SIMPLE_TOOL = {
     },
 }
 
+# Simple single-turn history (always ends with user message)
+_SIMPLE_HISTORY = [
+    {"role": "user", "content": "Reply with exactly the words: hello world"},
+]
+
+# Multi-turn history ending with user message (realistic agent flow)
 _HISTORY = [
     {"role": "user", "content": "check services"},
     {"role": "assistant", "content": "docker_service_list: all 10 services healthy"},
     {"role": "user", "content": "summarize what you found"},
+]
+
+# Multi-turn history ending with assistant message (edge case — like a mid-summary snapshot)
+_HISTORY_ENDS_ASSISTANT = [
+    {"role": "user", "content": "check services"},
+    {"role": "assistant", "content": "docker_service_list: all 10 services healthy"},
 ]
 
 
@@ -70,14 +82,61 @@ def _report(label: str, resp) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Baseline — simple single-turn prompts
+# ---------------------------------------------------------------------------
+
+def test_simple_no_tools_no_think():
+    """Single user message, no tools, no think. Basic sanity check."""
+    resp = _run(_backend().chat("You are a helpful assistant.", _SIMPLE_HISTORY))
+    _report("simple / no_tools / no_think", resp)
+    assert resp.text, "Expected non-empty response"
+
+
+def test_simple_no_tools_think_false():
+    """Single user message, no tools, think=False."""
+    resp = _run(_backend(think=False).chat("You are a helpful assistant.", _SIMPLE_HISTORY))
+    _report("simple / no_tools / think=False", resp)
+    assert resp.text, "Expected non-empty response"
+
+
+def test_simple_no_tools_think_true():
+    """Single user message, no tools, think=True."""
+    resp = _run(_backend(think=True).chat("You are a helpful assistant.", _SIMPLE_HISTORY))
+    _report("simple / no_tools / think=True", resp)
+    assert resp.text, "Expected non-empty response"
+
+
+def test_simple_with_tools_think_false():
+    """Single user message, with tools, think=False."""
+    resp = _run(_backend(think=False).chat("You are a helpful assistant.", _SIMPLE_HISTORY, tool_defs=[_SIMPLE_TOOL]))
+    _report("simple / tools / think=False", resp)
+    assert resp.text or resp.tool_calls, "Expected text or tool call"
+
+
+def test_simple_with_tools_think_true():
+    """Single user message, with tools, think=True."""
+    resp = _run(_backend(think=True).chat("You are a helpful assistant.", _SIMPLE_HISTORY, tool_defs=[_SIMPLE_TOOL]))
+    _report("simple / tools / think=True", resp)
+    assert resp.text or resp.tool_calls, "Expected text or tool call"
+
+
+# ---------------------------------------------------------------------------
 # No-tools cases (summary-like calls)
 # ---------------------------------------------------------------------------
 
 def test_no_tools_no_think_flag():
-    """Baseline: no tools, think not passed. Should produce content."""
+    """History ends with user message, no tools, no think. Should produce content."""
     resp = _run(_backend().chat("You are a helpful assistant.", _HISTORY))
-    _report("no_tools / think=not passed", resp)
+    _report("no_tools / ends_user / no_think", resp)
     assert resp.text, "Expected non-empty response"
+
+
+def test_no_tools_history_ends_assistant():
+    """History ends with assistant message — documents whether model responds at all."""
+    resp = _run(_backend().chat("Summarize this conversation.", _HISTORY_ENDS_ASSISTANT))
+    _report("no_tools / ends_assistant / no_think", resp)
+    # Just documenting behavior, not asserting
+    print(f"  → {'OK' if resp.text else 'EMPTY — history ending with assistant suppresses output'}")
 
 
 def test_no_tools_config_think_false():

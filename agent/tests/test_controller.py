@@ -129,7 +129,7 @@ async def test_cmd_stop_calls_agent_cancel_all(tmp_path) -> None:
 async def test_cmd_queue_empty(tmp_path) -> None:
     controller, agent, slack = make_controller(mode="act")
     result = await controller.handle_command("queue")
-    assert "No pending" in result
+    assert "No active work" in result or "No pending" in result
 
 
 @pytest.mark.asyncio

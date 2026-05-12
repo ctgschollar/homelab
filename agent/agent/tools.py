@@ -490,10 +490,13 @@ class ToolExecutor:
                 spec = svc.attrs.get("Spec", {})
                 mode = spec.get("Mode", {})
                 replicated = mode.get("Replicated", {})
-                desired = replicated.get("Replicas", "?")
                 image = spec.get("TaskTemplate", {}).get("ContainerSpec", {}).get("Image", "?")
                 image = image.split("@")[0]  # strip digest
-                lines.append(f"{svc.name}  replicas={desired}  image={image}")
+                status = svc.attrs.get("ServiceStatus", {})
+                running = status.get("RunningTasks")
+                desired = status.get("DesiredTasks")
+                replicas_str = f"{running}/{desired}" if running is not None and desired is not None else "?"
+                lines.append(f"{svc.name}  replicas={replicas_str}  image={image}")
             return "\n".join(lines)
 
         return await loop.run_in_executor(None, _list)

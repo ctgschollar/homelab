@@ -56,6 +56,7 @@ class AgentController:
         self.stopped: bool = False
         self.deferred: dict[str, DeferredAlert] = {}
         self._active_agent_task: asyncio.Task | None = None
+        self._active_task_description: str | None = None
 
     # ------------------------------------------------------------------
     # Whitelist persistence
@@ -138,6 +139,11 @@ class AgentController:
 
     async def _run_agent(self, event: dict) -> None:
         agent = self.agents["default"]
+        etype = event.get("type", "event")
+        services = [s["service"] for s in event.get("data", {}).get("services", [])]
+        self._active_task_description = (
+            f"{etype}: {', '.join(services)}" if services else etype
+        )
         task = asyncio.create_task(agent.handle_event(event))
         agent._active_task = task  # type: ignore[attr-defined]
         self._active_agent_task = task
@@ -147,11 +153,13 @@ class AgentController:
             pass
         finally:
             self._active_agent_task = None
+            self._active_task_description = None
             agent._active_task = None  # type: ignore[attr-defined]
 
     async def _run_agent_chat(self, event: dict) -> None:
         source = event.get("source", "cli")
         message = event["data"]["message"]
+        self._active_task_description = f"responding to {source}: {message[:60]}{'…' if len(message) > 60 else ''}"
         agent = self.agents["default"]
         task = asyncio.create_task(
             agent.chat(message, trigger=f"{source}:user_message")
@@ -166,6 +174,7 @@ class AgentController:
             pass
         finally:
             self._active_agent_task = None
+            self._active_task_description = None
             agent._active_task = None  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
@@ -209,17 +218,21 @@ class AgentController:
         return "✅ Resumed."
 
     def _cmd_queue(self) -> str:
-        if not self.deferred:
-            return "No pending investigations in queue."
-        now = datetime.now(timezone.utc)
-        lines = [f"*{len(self.deferred)} pending investigation(s):*"]
-        for alert in self.deferred.values():
-            age = int((now - alert.deferred_at).total_seconds())
-            remaining = max(0, self._grace_period - age)
-            lines.append(
-                f"• `{alert.alert_id}` — {', '.join(alert.services)} "
-                f"— waiting {age}s, {remaining}s remaining"
-            )
+        lines = []
+        if self._active_task_description:
+            lines.append(f"⚙️ *Currently working on:* {self._active_task_description}")
+        if self.deferred:
+            now = datetime.now(timezone.utc)
+            lines.append(f"*{len(self.deferred)} pending investigation(s):*")
+            for alert in self.deferred.values():
+                age = int((now - alert.deferred_at).total_seconds())
+                remaining = max(0, self._grace_period - age)
+                lines.append(
+                    f"• `{alert.alert_id}` — {', '.join(alert.services)} "
+                    f"— waiting {age}s, {remaining}s remaining"
+                )
+        if not lines:
+            return "No active work or pending investigations."
         return "\n".join(lines)
 
     async def _cmd_mode(self, mode: Literal["monitor", "act"]) -> str:
@@ -353,7 +366,7 @@ class AgentController:
             if not summary:
                 return "No history to summarize."
             await self._slack.notify(f"📋 *History summary:*\n{summary}")
-            return summary
+            return "📋 Summary posted."
         return "Usage: `history clear` | `history summary`"
 
     def _cmd_help(self) -> str:

@@ -336,7 +336,7 @@ async def test_cmd_history_summary(tmp_path):
     controller, agent, slack = make_controller(tmp_path)
     result = await controller.handle_command("history summary")
     agent.get_summary.assert_called_once()
-    assert "Summary of investigation." in result
+    assert "Summary posted" in result or "posted" in result.lower()
 
 
 @pytest.mark.asyncio

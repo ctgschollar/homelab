@@ -482,7 +482,7 @@ class ToolExecutor:
             filters = {}
             if stack_filter:
                 filters["label"] = f"com.docker.stack.namespace={stack_filter}"
-            services = client.services.list(filters=filters if filters else None)
+            services = client.services.list(filters=filters if filters else None, status=True)
             if not services:
                 return "No services found."
             lines = []

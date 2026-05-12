@@ -94,6 +94,17 @@ Tools have a hardcoded default in `safety.py:_DEFAULT_TIERS` and can be overridd
 
 `docker_stack_deploy` snapshots the current image tags for all services in the stack into `rollback_state.json` before deploying. `docker_stack_rollback` reads this snapshot and issues `docker service update --image` for each service.
 
+### Ollama / Qwen3 behaviour notes
+
+These were established via live integration tests (`tests/test_llm_live.py`):
+
+- **`think` parameter works** with both `think=True` and `think=False` for tool calls and plain responses — all combinations pass when the conversation history is valid.
+- **History must end with a user message.** Ollama's chat API is strictly turn-based: if the last message is from the assistant, the model produces empty output. This is not a `think`-related issue — it affects all calls regardless of think setting.
+- **`_call_summary` appends a terminal user message** when the flattened history ends with an assistant message. Without this, auto-summarisation always fails because normal agent turns end with an assistant response.
+- **Never pass `tools=[]`** (empty list) to Ollama — it activates tool-calling mode with no tools available, confusing the model. The `chat()` signature defaults `tool_defs=[]` but the backend skips the `tools` kwarg when the list is empty.
+- **`think` is only passed on tool calls** (when `ollama_tools` is non-empty). Summary calls omit it entirely — passing `think` without tools produces empty output.
+- **Live tests require the real Ollama server** and take ~40 minutes for the full suite. Run explicitly: `python -m pytest tests/test_llm_live.py -v -s` (not included in the normal `hatch run pytest` suite).
+
 ### Adding a new tool
 
 1. Add the tool schema to `TOOL_DEFINITIONS` in `agent/tools.py`

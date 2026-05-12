@@ -38,7 +38,7 @@ class LLMBackend(ABC):
         self,
         system: str,
         history: list[dict],
-        tool_defs: list[dict],
+        tool_defs: list[dict] = [],
         think_override: bool | None = None,
     ) -> LLMResponse: ...
 
@@ -73,12 +73,13 @@ class AnthropicBackend(LLMBackend):
         self,
         system: str,
         history: list[dict],
-        tool_defs: list[dict],
+        tool_defs: list[dict] = [],
         think_override: bool | None = None,
     ) -> LLMResponse:
         system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
         tools = list(tool_defs)
-        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
 
         logger.debug(
             "API REQUEST model=%s history_turns=%d",
@@ -207,7 +208,7 @@ class OllamaBackend(LLMBackend):
         self,
         system: str,
         history: list[dict],
-        tool_defs: list[dict],
+        tool_defs: list[dict] = [],
         think_override: bool | None = None,
     ) -> LLMResponse:
         messages = [{"role": "system", "content": system}] + history

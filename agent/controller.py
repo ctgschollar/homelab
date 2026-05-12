@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 console = Console()
 
-_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context", "history"])
+_COMMANDS = frozenset(["stop", "start", "queue", "mode monitor", "mode act", "model", "help", "context", "history", "command"])
 
 
 @dataclass
@@ -93,7 +93,7 @@ class AgentController:
 
     def is_command(self, text: str) -> bool:
         lower = text.lower().strip()
-        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ") or lower.startswith("history ")
+        return lower in _COMMANDS or lower.startswith("model ") or lower.startswith("context ") or lower.startswith("history ") or lower.startswith("command ")
 
     # ------------------------------------------------------------------
     # Event routing
@@ -203,6 +203,8 @@ class AgentController:
                 return await self._cmd_context(text.strip())
             if lower == "history" or lower.startswith("history "):
                 return await self._cmd_history(text.strip())
+            if lower == "command" or lower.startswith("command "):
+                return await self._cmd_command(text.strip())
         finally:
             self._active_task_description = None
         return f"Unknown command: {text!r}"
@@ -373,6 +375,45 @@ class AgentController:
             return "📋 Summary posted."
         return "Usage: `history clear` | `history summary`"
 
+    async def _cmd_command(self, text: str) -> str:
+        from agent.tools import TOOL_DEFINITIONS
+        parts = text.split(None, 2)
+        sub = parts[1].lower() if len(parts) > 1 else ""
+
+        if sub == "list" or not sub:
+            lines = ["*Available tools:*"]
+            for t in TOOL_DEFINITIONS:
+                props = t.get("input_schema", {}).get("properties", {})
+                required = t.get("input_schema", {}).get("required", [])
+                params = ", ".join(
+                    f"{k}{'*' if k in required else '?'}" for k in props
+                )
+                lines.append(f"• `{t['name']}` — {t['description']}" + (f" ({params})" if params else ""))
+            return "\n".join(lines)
+
+        if sub == "run":
+            if len(parts) < 3:
+                return "Usage: `command run <tool_name> [json_args]`"
+            rest = parts[2].strip()
+            # tool name is first word of rest, remainder is optional JSON
+            rest_parts = rest.split(None, 1)
+            tool_name = rest_parts[0]
+            json_args = rest_parts[1].strip() if len(rest_parts) > 1 else "{}"
+            try:
+                tool_input = json.loads(json_args)
+            except json.JSONDecodeError as exc:
+                return f"Invalid JSON args: {exc}"
+            agent = self.agents.get("default")
+            if agent is None or not hasattr(agent, "_tools"):
+                return "Agent tools not available."
+            try:
+                result = await agent._tools.execute(tool_name, tool_input)  # type: ignore[attr-defined]
+            except Exception as exc:
+                return f"Tool error: {exc}"
+            return f"```\n{result}\n```"
+
+        return "Usage: `command list` | `command run <tool_name> [json_args]`"
+
     def _cmd_help(self) -> str:
         return (
             "*Homelab Agent — Slack commands:*\n"
@@ -391,6 +432,8 @@ class AgentController:
             "• `context set <k>` — set context window (k in thousands: 1, 4, 8, 16, 32, 64, 128)\n"
             "• `history clear` — clear conversation history\n"
             "• `history summary` — summarize and post current history\n"
+            "• `command list` — list all available tools\n"
+            "• `command run <tool> [json]` — run a tool directly, e.g. `command run docker_service_list {}`\n"
             "\nAnything else is sent to the agent as a question."
         )
 

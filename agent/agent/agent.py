@@ -848,7 +848,10 @@ class HomelabAgent:
             "any unresolved issues. Include specific service names and error messages. "
             "Be terse — this summary replaces the conversation in context, so facts matter more than prose."
         )
-        response = await self._backend.chat(summary_system, messages, [])
+        plain = [m for m in messages if self._is_plain_text(m)]
+        if not plain:
+            return ""
+        response = await self._backend.chat(summary_system, plain, [])
         return response.text.strip()
 
     def switch_backend(self, entry: "ModelEntry") -> None:

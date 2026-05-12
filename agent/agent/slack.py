@@ -352,9 +352,14 @@ class SlackClient:
         ], text=f"Service recovered: {service}")
 
     async def notify(self, text: str) -> dict:
-        return await self._post_message([
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}}
-        ], text=text)
+        _BLOCK_LIMIT = 2900
+        if len(text) <= _BLOCK_LIMIT:
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+        else:
+            blocks = []
+            for i in range(0, len(text), _BLOCK_LIMIT):
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[i:i + _BLOCK_LIMIT]}})
+        return await self._post_message(blocks, text=text[:3000])
 
     async def aclose(self) -> None:
         await self._http.aclose()

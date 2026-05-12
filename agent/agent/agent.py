@@ -842,10 +842,11 @@ class HomelabAgent:
 
     async def _call_summary(self, messages: list[dict]) -> str:
         summary_system = (
-            "Summarize this infrastructure troubleshooting conversation concisely. "
+            "Summarize this infrastructure troubleshooting conversation in 150 words or fewer. "
             "Cover: what alert or question triggered the investigation, key findings "
             "(errors, service states, commands run), actions taken or proposed, and "
-            "any unresolved issues. Include specific service names and error messages."
+            "any unresolved issues. Include specific service names and error messages. "
+            "Be terse — this summary replaces the conversation in context, so facts matter more than prose."
         )
         response = await self._backend.chat(summary_system, messages, [])
         return response.text.strip()

@@ -867,11 +867,18 @@ class HomelabAgent:
     async def _call_summary(self, messages: list[dict]) -> str:
         logger.debug("_call_summary: input %d messages", len(messages))
         summary_system = (
-            "Summarize this infrastructure troubleshooting conversation in 150 words or fewer. "
-            "Cover: what alert or question triggered the investigation, key findings "
-            "(errors, service states, commands run), actions taken or proposed, and "
-            "any unresolved issues. Include specific service names and error messages. "
-            "Be terse — this summary replaces the conversation in context, so facts matter more than prose."
+            "Summarize this infrastructure conversation. The history may contain multiple separate events "
+            "(alerts, user questions, checks) — summarize each one using this structure:\n\n"
+            "Trigger: <what initiated this — alert, user message, or scheduled check>\n"
+            "Investigation:\n"
+            "  - <tool: outcome> (one line per tool call, include the result e.g. 'docker_service_list: all 12 services healthy')\n"
+            "Response: <what the agent said or proposed>\n"
+            "Actions taken: <any approved/executed changes, or 'none'>\n"
+            "Outstanding: <unresolved issues, or 'none'>\n\n"
+            "Repeat the block for each distinct event. "
+            "Include specific service names, replica counts, and error messages. "
+            "Outcomes matter more than the fact that a tool was called. "
+            "This summary replaces the conversation in context."
         )
         flat = self._flatten_for_summary(messages)
         logger.debug("_call_summary: flattened to %d messages", len(flat))

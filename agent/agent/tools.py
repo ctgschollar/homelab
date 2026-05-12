@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from .rag import IncidentRAG
 
 _console = Console()
+logger = logging.getLogger("homelab.tools")
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +423,10 @@ class ToolExecutor:
         method = getattr(self, f"_tool_{tool_name}", None)
         if method is None:
             return f"ERROR: Unknown tool '{tool_name}'"
-        return await method(tool_input)
+        logger.debug("TOOL CALL %s input=%r", tool_name, tool_input)
+        result = await method(tool_input)
+        logger.debug("TOOL RESULT %s output_len=%d", tool_name, len(result))
+        return result
 
     # ------------------------------------------------------------------
     # Helpers

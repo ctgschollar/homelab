@@ -271,10 +271,23 @@ class OllamaBackend(LLMBackend):
                 break
             except ollama.ResponseError as exc:
                 logger.error("Ollama ResponseError: status=%s error=%r", exc.status_code, exc.error)
-                self._active_url = None  # clear cache so next attempt re-probes
+                self._active_url = None
                 if attempt < 4:
                     await asyncio.sleep(delay)
                     delay *= 2
+                    url = await self._resolve_url()
+                    client = ollama.AsyncClient(host=url)
+                else:
+                    raise
+            except Exception as exc:
+                # Connection-level failure — switch endpoint immediately, no backoff.
+                # _active_url cleared so _resolve_url re-probes; TTL ensures primary
+                # is re-tried periodically after fallback.
+                logger.warning("Ollama connection error (attempt %d): %r", attempt + 1, exc)
+                self._active_url = None
+                if attempt < 1:
+                    url = await self._resolve_url()
+                    client = ollama.AsyncClient(host=url)
                 else:
                     raise
 

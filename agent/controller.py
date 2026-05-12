@@ -195,12 +195,16 @@ class AgentController:
             return await self._cmd_mode("monitor")
         if lower == "mode act":
             return await self._cmd_mode("act")
-        if lower == "model" or lower.startswith("model "):
-            return await self._cmd_model(text.strip())
-        if lower == "context" or lower.startswith("context "):
-            return await self._cmd_context(text.strip())
-        if lower == "history" or lower.startswith("history "):
-            return await self._cmd_history(text.strip())
+        self._active_task_description = f"command: {text.strip()}"
+        try:
+            if lower == "model" or lower.startswith("model "):
+                return await self._cmd_model(text.strip())
+            if lower == "context" or lower.startswith("context "):
+                return await self._cmd_context(text.strip())
+            if lower == "history" or lower.startswith("history "):
+                return await self._cmd_history(text.strip())
+        finally:
+            self._active_task_description = None
         return f"Unknown command: {text!r}"
 
     async def _cmd_stop(self) -> str:

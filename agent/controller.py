@@ -55,8 +55,9 @@ class AgentController:
         self.whitelist: set[str] = self._load_whitelist()
         self.stopped: bool = False
         self.deferred: dict[str, DeferredAlert] = {}
-        self._active_agent_task: asyncio.Task | None = None
-        self._active_task_description: str | None = None
+        self._agent_lock = asyncio.Lock()
+        self._active_agent_tasks: set[asyncio.Task] = set()
+        self._active_task_descriptions: dict[int, str] = {}  # id(task) -> description
 
     # ------------------------------------------------------------------
     # Whitelist persistence
@@ -141,41 +142,43 @@ class AgentController:
         agent = self.agents["default"]
         etype = event.get("type", "event")
         services = [s["service"] for s in event.get("data", {}).get("services", [])]
-        self._active_task_description = (
-            f"{etype}: {', '.join(services)}" if services else etype
-        )
-        task = asyncio.create_task(agent.handle_event(event))
-        agent._active_task = task  # type: ignore[attr-defined]
-        self._active_agent_task = task
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._active_agent_task = None
-            self._active_task_description = None
-            agent._active_task = None  # type: ignore[attr-defined]
+        desc = f"{etype}: {', '.join(services)}" if services else etype
+        async with self._agent_lock:
+            task = asyncio.create_task(agent.handle_event(event))
+            agent._active_task = task  # type: ignore[attr-defined]
+            self._active_agent_tasks.add(task)
+            self._active_task_descriptions[id(task)] = desc
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._active_agent_tasks.discard(task)
+                self._active_task_descriptions.pop(id(task), None)
+                agent._active_task = None  # type: ignore[attr-defined]
 
     async def _run_agent_chat(self, event: dict) -> None:
         source = event.get("source", "cli")
         message = event["data"]["message"]
-        self._active_task_description = f"responding to {source}: {message[:60]}{'…' if len(message) > 60 else ''}"
+        desc = f"responding to {source}: {message[:60]}{'…' if len(message) > 60 else ''}"
         agent = self.agents["default"]
-        task = asyncio.create_task(
-            agent.chat(message, trigger=f"{source}:user_message")
-        )
-        agent._active_task = task  # type: ignore[attr-defined]
-        self._active_agent_task = task
-        try:
-            response, _ = await task
-            if source != "cli" and response:
-                await self._slack.notify(response, retry_prompt=message)
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._active_agent_task = None
-            self._active_task_description = None
-            agent._active_task = None  # type: ignore[attr-defined]
+        async with self._agent_lock:
+            task = asyncio.create_task(
+                agent.chat(message, trigger=f"{source}:user_message")
+            )
+            agent._active_task = task  # type: ignore[attr-defined]
+            self._active_agent_tasks.add(task)
+            self._active_task_descriptions[id(task)] = desc
+            try:
+                response, _ = await task
+                if source != "cli" and response:
+                    await self._slack.notify(response, retry_prompt=message)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._active_agent_tasks.discard(task)
+                self._active_task_descriptions.pop(id(task), None)
+                agent._active_task = None  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Control commands
@@ -195,7 +198,8 @@ class AgentController:
             return await self._cmd_mode("monitor")
         if lower == "mode act":
             return await self._cmd_mode("act")
-        self._active_task_description = f"command: {text.strip()}"
+        _cmd_key = id(asyncio.current_task()) or 0
+        self._active_task_descriptions[_cmd_key] = f"command: {text.strip()}"
         try:
             if lower == "model" or lower.startswith("model "):
                 return await self._cmd_model(text.strip())
@@ -208,7 +212,7 @@ class AgentController:
             if lower == "think" or lower.startswith("think "):
                 return self._cmd_think(text.strip())
         finally:
-            self._active_task_description = None
+            self._active_task_descriptions.pop(_cmd_key, None)
         return f"Unknown command: {text!r}"
 
     async def _cmd_stop(self) -> str:
@@ -216,8 +220,8 @@ class AgentController:
         for alert in list(self.deferred.values()):
             alert.timer_task.cancel()
         self.deferred.clear()
-        if self._active_agent_task:
-            self._active_agent_task.cancel()
+        for task in list(self._active_agent_tasks):
+            task.cancel()
         await self.agents["default"].cancel_all()
         return "🛑 Stopped. All pending work cancelled. Type `start` to resume."
 
@@ -227,8 +231,14 @@ class AgentController:
 
     def _cmd_queue(self) -> str:
         lines = []
-        if self._active_task_description:
-            lines.append(f"⚙️ *Currently working on:* {self._active_task_description}")
+        if self._active_task_descriptions:
+            descs = list(self._active_task_descriptions.values())
+            if len(descs) == 1:
+                lines.append(f"⚙️ *Currently working on:* {descs[0]}")
+            else:
+                lines.append(f"⚙️ *Currently working on ({len(descs)} concurrent):*")
+                for d in descs:
+                    lines.append(f"  • {d}")
         if self.deferred:
             now = datetime.now(timezone.utc)
             lines.append(f"*{len(self.deferred)} pending investigation(s):*")

@@ -895,6 +895,8 @@ class HomelabAgent:
         if not flat:
             logger.debug("_call_summary: nothing to summarize after flattening")
             return ""
+        if flat[-1].get("role") == "assistant":
+            flat = flat + [{"role": "user", "content": "Please provide your summary now."}]
         response = await self._backend.chat(summary_system, flat)
         logger.debug("_call_summary: response text length=%d", len(response.text))
         return response.text.strip()

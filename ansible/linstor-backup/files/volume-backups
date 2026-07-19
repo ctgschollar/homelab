@@ -335,7 +335,7 @@ def restore_volume(volume_name: str):
             '-v', f'{volume_name}:/target',
             '-v', f'{selected_backup["path"]}:/backup.tar.gz:ro',
             'alpine:latest',
-            'sh', '-c', f'cd /target && tar -xzf /backup.tar.gz {strip}'
+            'sh', '-c', f'cd /target && tar {strip} -xzf /backup.tar.gz'
         ]
         run_command(restore_cmd, capture_output=False)
 

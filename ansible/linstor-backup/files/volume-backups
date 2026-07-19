@@ -308,7 +308,9 @@ def restore_volume(volume_name: str):
         ]
         run_command(clear_cmd, capture_output=False)
 
-        # Detect if backup has a single extra top-level directory prefix (e.g. from linstor host mount)
+        # Detect if backup has a single extra top-level directory prefix (e.g. from linstor host mount).
+        # BusyBox tar (alpine) does not reliably honour --strip-components, so we extract to a temp
+        # directory and use cp -a to move files from the correct subdirectory into the volume root.
         probe = subprocess.run(
             ['tar', '-tzf', str(selected_backup['path'])],
             capture_output=True, text=True, check=True
@@ -322,20 +324,29 @@ def restore_volume(volume_name: str):
         top_level = {p.split('/')[0] for p in paths}
         second_level = {'/'.join(p.split('/')[:2]) for p in paths if len(p.split('/')) > 1}
         if top_level == {'data'} and any(s.startswith('data/data') for s in second_level):
-            strip = '--strip-components=2'
+            strip_dir = 'data/data'
         elif top_level == {'data'}:
-            strip = '--strip-components=1'
+            strip_dir = 'data'
         else:
-            strip = '--strip-components=0'
+            strip_dir = ''
 
         # Extract backup to volume
         print(colorize(f"  [2/3] Extracting backup...", 'YELLOW'))
+        if strip_dir:
+            sh_cmd = (
+                f'mkdir -p /tmp/restore_work && '
+                f'tar -xzf /backup.tar.gz -C /tmp/restore_work && '
+                f'cp -a /tmp/restore_work/{strip_dir}/. /target/ && '
+                f'rm -rf /tmp/restore_work'
+            )
+        else:
+            sh_cmd = 'tar -xzf /backup.tar.gz -C /target'
         restore_cmd = [
             'docker', 'run', '--rm',
             '-v', f'{volume_name}:/target',
             '-v', f'{selected_backup["path"]}:/backup.tar.gz:ro',
             'alpine:latest',
-            'sh', '-c', f'cd /target && tar {strip} -xzf /backup.tar.gz'
+            'sh', '-c', sh_cmd
         ]
         run_command(restore_cmd, capture_output=False)
 

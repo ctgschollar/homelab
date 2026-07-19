@@ -1,6 +1,6 @@
 ---
 - name: Deploy linstor volume backup system
-  hosts: docker_swarm_nodes
+  hosts: docker_swarm
   become: true
 
   vars:
